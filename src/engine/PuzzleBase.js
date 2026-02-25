@@ -116,6 +116,40 @@ export class PuzzleBase {
     this.historyStack = [];
   }
 
+  minInsertMovesForPerm(perm) {
+    const tails = [];
+
+    for (let i = 0; i < perm.length; i += 1) {
+      const value = perm[i];
+      let lo = 0;
+      let hi = tails.length;
+
+      while (lo < hi) {
+        const mid = (lo + hi) >> 1;
+        if (tails[mid] < value) {
+          lo = mid + 1;
+        } else {
+          hi = mid;
+        }
+      }
+
+      tails[lo] = value;
+    }
+
+    return perm.length - tails.length;
+  }
+
+  getMinimumInsertMoves() {
+    const rowMin = this.minInsertMovesForPerm(this.rowPerm);
+    const colMin = this.minInsertMovesForPerm(this.colPerm);
+
+    return {
+      rowMin,
+      colMin,
+      total: rowMin + colMin
+    };
+  }
+
   isIdentityPerm(perm) {
     return perm.every((value, index) => value === index);
   }

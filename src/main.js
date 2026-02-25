@@ -12,6 +12,7 @@ const undoBtn = document.getElementById("undo-btn");
 const playAgainBtn = document.getElementById("play-again-btn");
 
 const movesValueEl = document.getElementById("moves-value");
+const bestMovesValueEl = document.getElementById("best-moves-value");
 const metricLabelEl = document.getElementById("metric-label");
 const metricValueEl = document.getElementById("metric-value");
 const metricSecondaryLabelEl = document.getElementById("metric-secondary-label");
@@ -45,6 +46,7 @@ let hoveredHandle = null;
 let renderQueued = false;
 
 let currentImageSource = createDemoImage();
+let currentImageSeedKey = "builtin-demo-v1";
 let gridSize = parseGridSize(gridSizeSelectEl?.value);
 
 function createDemoImage(size = 1200) {
@@ -52,6 +54,7 @@ function createDemoImage(size = 1200) {
   canvas.width = size;
   canvas.height = size;
   const ctx = canvas.getContext("2d");
+  const ornamentRng = createSeededRng("builtin-demo-v1", "ornaments");
 
   ctx.fillStyle = "#f4f5f6";
   ctx.fillRect(0, 0, size, size);
@@ -132,10 +135,10 @@ function createDemoImage(size = 1200) {
   }
 
   for (let i = 0; i < 22; i += 1) {
-    const x = cx - bodyW * 0.4 + (Math.random() * bodyW * 0.8);
-    const y = cy - bodyH * 0.22 + (Math.random() * bodyH * 0.45);
+    const x = cx - bodyW * 0.4 + (ornamentRng() * bodyW * 0.8);
+    const y = cy - bodyH * 0.22 + (ornamentRng() * bodyH * 0.45);
     ctx.beginPath();
-    ctx.ellipse(x, y, bodyW * 0.027, bodyH * 0.022, Math.random() * Math.PI, 0, Math.PI * 2);
+    ctx.ellipse(x, y, bodyW * 0.027, bodyH * 0.022, ornamentRng() * Math.PI, 0, Math.PI * 2);
     ctx.fillStyle = "#f8f4ef";
     ctx.fill();
   }
@@ -168,10 +171,40 @@ function isSolved() {
   return engine?.isSolved() ?? false;
 }
 
-function randomPermutation(n) {
+function xmur3(input) {
+  let h = 1779033703 ^ input.length;
+  for (let i = 0; i < input.length; i += 1) {
+    h = Math.imul(h ^ input.charCodeAt(i), 3432918353);
+    h = (h << 13) | (h >>> 19);
+  }
+
+  return () => {
+    h = Math.imul(h ^ (h >>> 16), 2246822507);
+    h = Math.imul(h ^ (h >>> 13), 3266489909);
+    return (h ^ (h >>> 16)) >>> 0;
+  };
+}
+
+function mulberry32(seed) {
+  let state = seed >>> 0;
+  return () => {
+    state = (state + 0x6d2b79f5) >>> 0;
+    let t = state;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function createSeededRng(seedKey, streamKey = "") {
+  const seedGen = xmur3(`${seedKey}::${streamKey}`);
+  return mulberry32(seedGen());
+}
+
+function randomPermutation(n, rng) {
   const result = Array.from({ length: n }, (_, i) => i);
   for (let i = n - 1; i > 0; i -= 1) {
-    const j = Math.floor(Math.random() * (i + 1));
+    const j = Math.floor(rng() * (i + 1));
     [result[i], result[j]] = [result[j], result[i]];
   }
   return result;
@@ -199,29 +232,66 @@ function countInversions(perm) {
   return inversions;
 }
 
-function createStrongScramblePerm(n) {
-  const maxInversions = (n * (n - 1)) / 2;
-  const minInversions = Math.max(1, Math.floor(maxInversions * 0.7));
+function countAdjacentSourceNeighbors(perm) {
+  let count = 0;
+  for (let i = 0; i < perm.length - 1; i += 1) {
+    if (Math.abs(perm[i] - perm[i + 1]) === 1) {
+      count += 1;
+    }
+  }
+  return count;
+}
 
-  for (let attempt = 0; attempt < 3000; attempt += 1) {
-    const perm = randomPermutation(n);
+function permutationScrambleScore(perm) {
+  const inversions = countInversions(perm);
+  const displacement = perm.reduce((sum, value, index) => sum + Math.abs(value - index), 0);
+  return inversions * (perm.length + 1) + displacement;
+}
+
+function createStrongScramblePerm(n, rng) {
+  const attemptBudget = n <= 6 ? 12000 : 8000;
+  let bestStrict = null;
+  let bestFallback = null;
+
+  for (let attempt = 0; attempt < attemptBudget; attempt += 1) {
+    const perm = randomPermutation(n, rng);
     if (countFixedPoints(perm) !== 0) {
       continue;
     }
-    if (countInversions(perm) < minInversions) {
+
+    const score = permutationScrambleScore(perm);
+    if (!bestFallback || score > bestFallback.score) {
+      bestFallback = { perm, score };
+    }
+
+    if (countAdjacentSourceNeighbors(perm) !== 0) {
       continue;
     }
-    return perm;
+
+    if (!bestStrict || score > bestStrict.score) {
+      bestStrict = { perm, score };
+    }
   }
 
-  return randomPermutation(n);
+  if (bestStrict) {
+    return bestStrict.perm;
+  }
+
+  if (bestFallback) {
+    return bestFallback.perm;
+  }
+
+  return randomPermutation(n, rng);
 }
 
 function createEngine() {
   const puzzle = getPuzzleForMode("I");
   puzzle.n = gridSize;
-  puzzle.startRowPerm = createStrongScramblePerm(gridSize);
-  puzzle.startColPerm = createStrongScramblePerm(gridSize);
+  const scrambleKey = `${currentImageSeedKey}|n:${gridSize}`;
+  const rowRng = createSeededRng(scrambleKey, "rows");
+  const colRng = createSeededRng(scrambleKey, "cols");
+  puzzle.startRowPerm = createStrongScramblePerm(gridSize, rowRng);
+  puzzle.startColPerm = createStrongScramblePerm(gridSize, colRng);
   return new ModeImageEngine(puzzle, currentImageSource);
 }
 
@@ -262,7 +332,10 @@ function configureBoardFromEngine() {
 
 function updateMetrics() {
   const metrics = engine.getProgressMetrics();
+  const minMoves = engine.getMinimumInsertMoves();
   movesValueEl.textContent = String(engine.moveCount);
+  bestMovesValueEl.textContent = String(minMoves.total);
+  bestMovesValueEl.title = `Rows ${minMoves.rowMin} + Cols ${minMoves.colMin}`;
 
   metricLabelEl.textContent = "Correct Tiles";
   metricValueEl.textContent = `${metrics.correctCells}/${metrics.total}`;
