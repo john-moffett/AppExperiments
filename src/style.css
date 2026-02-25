@@ -1,0 +1,230 @@
+@import url("https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;700&family=Manrope:wght@500;700&display=swap");
+
+:root {
+  --bg-top: #efe7db;
+  --bg-bottom: #dbe8ef;
+  --panel: #f7f8fb;
+  --ink: #172a34;
+  --muted: #4b6270;
+  --line: #9cb0bb;
+  --accent: #0f6f91;
+  --good: #138a4b;
+  --warn: #b75222;
+  --bad: #b03b31;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+}
+
+body {
+  font-family: "Manrope", "Avenir Next", "Trebuchet MS", sans-serif;
+  color: var(--ink);
+  background:
+    radial-gradient(circle at 18% 12%, #ffe7ba 0%, #f7ecd7 24%, transparent 43%),
+    radial-gradient(circle at 84% 4%, #c8f0ea 0%, #dff8f1 26%, transparent 45%),
+    linear-gradient(135deg, var(--bg-top), var(--bg-bottom));
+}
+
+#app {
+  max-width: 1160px;
+  margin: 0 auto;
+  min-height: 100vh;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  gap: 0.9rem;
+  padding: 1rem;
+}
+
+.topbar {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.9rem;
+  flex-wrap: wrap;
+  padding: 0.8rem;
+  border: 1px solid color-mix(in oklab, var(--line), white 25%);
+  border-radius: 14px;
+  background: color-mix(in oklab, var(--panel), white 35%);
+  box-shadow: 0 10px 22px rgba(24, 44, 62, 0.08);
+}
+
+.controls-left,
+.controls-right {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.mode-select {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.mode-pill {
+  font-family: "Chakra Petch", "Manrope", sans-serif;
+  font-size: 0.9rem;
+  font-weight: 700;
+  border-radius: 10px;
+  border: 1px solid color-mix(in oklab, var(--accent), black 12%);
+  background: color-mix(in oklab, white, #cde7f0 34%);
+  color: color-mix(in oklab, var(--accent), black 20%);
+  padding: 0.42rem 0.72rem;
+}
+
+.file-select input[type="file"] {
+  max-width: 220px;
+  font-family: "Manrope", sans-serif;
+  font-size: 0.78rem;
+}
+
+button,
+select {
+  font-family: "Chakra Petch", "Manrope", sans-serif;
+  font-size: 0.95rem;
+  border-radius: 10px;
+  border: 1px solid color-mix(in oklab, var(--accent), black 12%);
+  background: color-mix(in oklab, white, #cde7f0 34%);
+  color: color-mix(in oklab, var(--accent), black 20%);
+  padding: 0.42rem 0.72rem;
+}
+
+button {
+  cursor: pointer;
+  transition: transform 120ms ease, filter 120ms ease;
+}
+
+button:hover {
+  filter: brightness(1.03);
+}
+
+button:active {
+  transform: translateY(1px);
+}
+
+.stat-pill {
+  min-width: 100px;
+  border: 1px solid color-mix(in oklab, var(--line), white 20%);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.78);
+  padding: 0.35rem 0.55rem;
+  display: grid;
+  gap: 0.05rem;
+}
+
+.stat-pill .label {
+  text-transform: uppercase;
+  font-size: 0.66rem;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+
+.stat-pill span:last-child {
+  font-family: "Chakra Petch", "Manrope", sans-serif;
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.board-area {
+  position: relative;
+  border: 1px solid color-mix(in oklab, var(--line), white 20%);
+  border-radius: 14px;
+  background: color-mix(in oklab, var(--panel), white 40%);
+  box-shadow: 0 16px 28px rgba(24, 44, 62, 0.1);
+  overflow: hidden;
+}
+
+#board-root {
+  width: 100%;
+  height: min(78vh, 820px);
+  min-height: 420px;
+}
+
+#board-root canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+#win-overlay {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(11, 24, 36, 0.42);
+  backdrop-filter: blur(3px);
+}
+
+#win-overlay.hidden {
+  display: none;
+}
+
+.win-card {
+  width: min(360px, 92vw);
+  border-radius: 14px;
+  border: 1px solid color-mix(in oklab, var(--good), white 35%);
+  background: color-mix(in oklab, white, #d7f3e4 25%);
+  padding: 1rem;
+  text-align: center;
+  animation: reveal 250ms ease;
+}
+
+.win-card h2 {
+  margin: 0;
+  font-family: "Chakra Petch", "Manrope", sans-serif;
+  font-size: 1.4rem;
+}
+
+.win-card p {
+  margin: 0.6rem 0 1rem;
+}
+
+.status-row {
+  border: 1px solid color-mix(in oklab, var(--line), white 25%);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.76);
+  padding: 0.62rem 0.78rem;
+  color: var(--muted);
+  min-height: 2.4rem;
+  display: flex;
+  align-items: center;
+}
+
+#status-text.good {
+  color: var(--good);
+}
+
+#status-text.warn {
+  color: var(--warn);
+}
+
+#status-text.bad {
+  color: var(--bad);
+}
+
+@keyframes reveal {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@media (max-width: 820px) {
+  #board-root {
+    min-height: 360px;
+    height: min(64vh, 620px);
+  }
+}

@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Image Chunk Swap Puzzle</title>
+  </head>
+  <body>
+    <div id="app">
+      <header class="topbar">
+        <div class="controls-left">
+          <span class="mode-pill">Image Chunk Swap</span>
+          <label id="image-upload-wrap" class="mode-select file-select" for="image-input">
+            Image
+            <input id="image-input" type="file" accept="image/*" />
+          </label>
+          <button id="demo-image-btn" type="button">Use Demo</button>
+          <button id="reset-btn" type="button">Reset</button>
+          <button id="undo-btn" type="button">Undo</button>
+        </div>
+
+        <div class="controls-right">
+          <div class="stat-pill">
+            <span class="label">Moves</span>
+            <span id="moves-value">0</span>
+          </div>
+          <div class="stat-pill">
+            <span id="metric-label" class="label">Correct Tiles</span>
+            <span id="metric-value">0</span>
+          </div>
+          <div class="stat-pill">
+            <span id="metric-secondary-label" class="label">Mismatches</span>
+            <span id="metric-secondary-value">0</span>
+          </div>
+        </div>
+      </header>
+
+      <main class="board-area">
+        <div id="board-root" aria-label="Puzzle board"></div>
+        <div id="win-overlay" class="hidden" role="status" aria-live="polite">
+          <div class="win-card">
+            <h2>Puzzle Solved</h2>
+            <p id="win-text"></p>
+            <button id="play-again-btn" type="button">Play Again</button>
+          </div>
+        </div>
+      </main>
+
+      <footer class="status-row">
+        <span id="status-text">Select a row or column handle to begin.</span>
+      </footer>
+    </div>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
