@@ -2,6 +2,10 @@ import * as THREE from "three";
 import { TileMesh } from "./TileMesh.js";
 import { HandleMesh } from "./HandleMesh.js";
 
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+
 export class BoardView {
   constructor(scene, options = {}) {
     this.scene = scene;
@@ -19,7 +23,7 @@ export class BoardView {
 
     this.raycastTargets = [];
     this.flashUntil = new Map();
-    this.swapAnimation = null;
+    this.dragPreview = null;
 
     this.n = 0;
     this.bounds = null;
@@ -110,28 +114,34 @@ export class BoardView {
     return this.raycastTargets;
   }
 
+  getDropIndex(kind, worldPoint) {
+    const step = this.cellSize + this.gap;
+
+    if (kind === "row") {
+      const relative = (this.bounds.originY - worldPoint.y) / step;
+      return clamp(Math.round(relative), 0, this.n - 1);
+    }
+
+    const relative = (worldPoint.x - this.bounds.originX) / step;
+    return clamp(Math.round(relative), 0, this.n - 1);
+  }
+
+  setDragPreview(preview) {
+    this.dragPreview = preview;
+  }
+
+  clearDragPreview() {
+    this.dragPreview = null;
+  }
+
+  hasActiveAnimations() {
+    return false;
+  }
+
   flashHandles(type, i, j, durationMs = 190) {
     const until = performance.now() + durationMs;
     this.flashUntil.set(`${type}:${i}`, until);
     this.flashUntil.set(`${type}:${j}`, until);
-  }
-
-  startSwapAnimation(kind, i, j, durationMs = 300) {
-    this.swapAnimation = {
-      kind,
-      i,
-      j,
-      startTime: performance.now(),
-      durationMs
-    };
-  }
-
-  hasActiveAnimations() {
-    if (!this.swapAnimation) {
-      return false;
-    }
-
-    return performance.now() - this.swapAnimation.startTime < this.swapAnimation.durationMs;
   }
 
   updateFromEngine(engine, interactionState) {
@@ -146,7 +156,7 @@ export class BoardView {
     for (let r = 0; r < engine.n; r += 1) {
       for (let c = 0; c < engine.n; c += 1) {
         const tile = this.tiles[r][c];
-        const motion = this.getSwapMotion(r, c, now);
+        const motion = this.getDragMotion(r, c);
         const baseX = this.bounds.originX + c * step;
         const baseY = this.bounds.originY - r * step;
 
@@ -157,11 +167,18 @@ export class BoardView {
 
         const cellData = engine.getCellRenderData(r, c);
 
+        const highlightFromDrag =
+          this.dragPreview &&
+          ((this.dragPreview.kind === "row" && this.dragPreview.fromIndex === r) ||
+            (this.dragPreview.kind === "col" && this.dragPreview.fromIndex === c));
+
         const activeHandle = hoveredHandle || selectedHandle;
-        const highlight =
+        const highlightFromHover =
           activeHandle &&
           ((activeHandle.kind === "row" && activeHandle.index === r) ||
             (activeHandle.kind === "col" && activeHandle.index === c));
+
+        const highlight = Boolean(highlightFromDrag || highlightFromHover);
 
         tile.setHighlighted(Boolean(highlight));
 
@@ -185,7 +202,7 @@ export class BoardView {
     }
   }
 
-  getSwapMotion(r, c, now) {
+  getDragMotion(r, c) {
     const motion = {
       offsetX: 0,
       offsetY: 0,
@@ -196,65 +213,60 @@ export class BoardView {
       depthAmount: 0
     };
 
-    if (!this.swapAnimation) {
+    if (!this.dragPreview) {
       return motion;
     }
 
-    const { kind, i, j, startTime, durationMs } = this.swapAnimation;
-    const elapsed = now - startTime;
-    if (elapsed >= durationMs) {
-      this.swapAnimation = null;
-      return motion;
-    }
-
-    const t = Math.max(0, Math.min(1, elapsed / durationMs));
-    const eased = this.easeInOutCubic(t);
-    const travel = 1 - eased;
-    const hump = Math.sin(Math.PI * t);
     const step = this.cellSize + this.gap;
+    const { kind, fromIndex, toIndex } = this.dragPreview;
 
-    let moving = false;
     if (kind === "row") {
-      const delta = (j - i) * step;
-      const sign = Math.sign(delta || 1);
-      if (r === i) {
-        motion.offsetY = -delta * travel;
-        motion.rotX = 0.5 * hump * sign;
-        moving = true;
-      } else if (r === j) {
-        motion.offsetY = delta * travel;
-        motion.rotX = -0.5 * hump * sign;
-        moving = true;
+      const baseFromY = this.bounds.originY - fromIndex * step;
+      const minY = this.bounds.originY - (this.n - 1) * step;
+      const maxY = this.bounds.originY;
+      const desiredY = clamp(this.dragPreview.pointerY, minY, maxY);
+      const freeOffset = desiredY - baseFromY;
+
+      if (r === fromIndex) {
+        motion.offsetY = freeOffset;
+        motion.liftZ = 0.46;
+        motion.scaleBoost = 0.06;
+        motion.depthAmount = 1;
+        motion.rotX = clamp((-freeOffset / step) * 0.22, -0.55, 0.55);
+      } else if (fromIndex < toIndex && r > fromIndex && r <= toIndex) {
+        motion.offsetY = step;
+        motion.liftZ = 0.05;
+        motion.depthAmount = 0.18;
+      } else if (fromIndex > toIndex && r >= toIndex && r < fromIndex) {
+        motion.offsetY = -step;
+        motion.liftZ = 0.05;
+        motion.depthAmount = 0.18;
       }
     } else if (kind === "col") {
-      const delta = (j - i) * step;
-      const sign = Math.sign(delta || 1);
-      if (c === i) {
-        motion.offsetX = delta * travel;
-        motion.rotY = -0.5 * hump * sign;
-        moving = true;
-      } else if (c === j) {
-        motion.offsetX = -delta * travel;
-        motion.rotY = 0.5 * hump * sign;
-        moving = true;
-      }
-    }
+      const baseFromX = this.bounds.originX + fromIndex * step;
+      const minX = this.bounds.originX;
+      const maxX = this.bounds.originX + (this.n - 1) * step;
+      const desiredX = clamp(this.dragPreview.pointerX, minX, maxX);
+      const freeOffset = desiredX - baseFromX;
 
-    if (moving) {
-      motion.liftZ = 0.36 * hump;
-      motion.scaleBoost = 0.045 * hump;
-      motion.depthAmount = hump;
+      if (c === fromIndex) {
+        motion.offsetX = freeOffset;
+        motion.liftZ = 0.46;
+        motion.scaleBoost = 0.06;
+        motion.depthAmount = 1;
+        motion.rotY = clamp((freeOffset / step) * 0.22, -0.55, 0.55);
+      } else if (fromIndex < toIndex && c > fromIndex && c <= toIndex) {
+        motion.offsetX = -step;
+        motion.liftZ = 0.05;
+        motion.depthAmount = 0.18;
+      } else if (fromIndex > toIndex && c >= toIndex && c < fromIndex) {
+        motion.offsetX = step;
+        motion.liftZ = 0.05;
+        motion.depthAmount = 0.18;
+      }
     }
 
     return motion;
-  }
-
-  easeInOutCubic(t) {
-    if (t < 0.5) {
-      return 4 * t * t * t;
-    }
-    const f = -2 * t + 2;
-    return 1 - (f * f * f) / 2;
   }
 
   updateHandleStates(handles, kind, hoveredHandle, selectedHandle, now) {
@@ -267,9 +279,12 @@ export class BoardView {
         this.flashUntil.delete(flashKey);
       }
 
+      const dragSelected = this.dragPreview?.kind === kind && this.dragPreview.fromIndex === i;
+      const dragTarget = this.dragPreview?.kind === kind && this.dragPreview.toIndex === i;
+
       handle.setState({
-        selected: selectedHandle?.kind === kind && selectedHandle.index === i,
-        hovered: hoveredHandle?.kind === kind && hoveredHandle.index === i,
+        selected: Boolean(selectedHandle?.kind === kind && selectedHandle.index === i) || dragSelected,
+        hovered: Boolean(hoveredHandle?.kind === kind && hoveredHandle.index === i) || dragTarget,
         flash: flashUntil >= now
       });
     }
@@ -290,12 +305,12 @@ export class BoardView {
     }
 
     this.tiles = [];
-    this.swapAnimation = null;
 
     disposeGroup(this.rowHandles);
     disposeGroup(this.colHandles);
     this.rowHandles = [];
     this.colHandles = [];
+    this.dragPreview = null;
 
     while (this.root.children.length) {
       this.root.remove(this.root.children[0]);

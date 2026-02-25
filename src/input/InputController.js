@@ -1,12 +1,24 @@
 import * as THREE from "three";
 
 export class InputController {
-  constructor({ domElement, camera, getTargets, onHandleClick, onDragReleaseSwap, onHoverHandle, requestRender }) {
+  constructor({
+    domElement,
+    camera,
+    getTargets,
+    getDropIndex,
+    onDragPreview,
+    onReorderCommit,
+    onHandleTap,
+    onHoverHandle,
+    requestRender
+  }) {
     this.domElement = domElement;
     this.camera = camera;
     this.getTargets = getTargets;
-    this.onHandleClick = onHandleClick;
-    this.onDragReleaseSwap = onDragReleaseSwap;
+    this.getDropIndex = getDropIndex;
+    this.onDragPreview = onDragPreview;
+    this.onReorderCommit = onReorderCommit;
+    this.onHandleTap = onHandleTap;
     this.onHoverHandle = onHoverHandle;
     this.requestRender = requestRender;
 
@@ -19,8 +31,9 @@ export class InputController {
     this.downHandle = null;
     this.dragStart = new THREE.Vector3();
     this.dragged = false;
+    this.targetIndex = null;
 
-    this.dragThreshold = 0.35;
+    this.dragThreshold = 0.18;
 
     this.boundPointerDown = (event) => this.onPointerDown(event);
     this.boundPointerMove = (event) => this.onPointerMove(event);
@@ -51,11 +64,14 @@ export class InputController {
     this.pointerDown = Boolean(hit);
     this.downHandle = hit;
     this.dragged = false;
+    this.targetIndex = null;
 
-    if (hit) {
-      this.domElement.setPointerCapture(event.pointerId);
-      this.getWorldPoint(event, this.dragStart);
+    if (!hit) {
+      return;
     }
+
+    this.domElement.setPointerCapture(event.pointerId);
+    this.getWorldPoint(event, this.dragStart);
   }
 
   onPointerMove(event) {
@@ -78,21 +94,32 @@ export class InputController {
       this.dragged = true;
     }
 
+    if (this.dragged) {
+      const toIndex = this.getDropIndex(this.downHandle.kind, this.worldPoint);
+      this.targetIndex = toIndex;
+      this.onDragPreview({
+        kind: this.downHandle.kind,
+        fromIndex: this.downHandle.index,
+        toIndex,
+        pointerX: this.worldPoint.x,
+        pointerY: this.worldPoint.y
+      });
+    }
+
     this.requestRender();
   }
 
   onPointerUp(event) {
     if (this.pointerDown && this.downHandle) {
-      const upHandle = this.pickHandle(event);
-      const droppedOnCompatibleHandle =
-        upHandle &&
-        upHandle.kind === this.downHandle.kind &&
-        upHandle.index !== this.downHandle.index;
+      if (this.dragged) {
+        const toIndex = this.targetIndex ?? this.downHandle.index;
+        this.onDragPreview(null);
 
-      if (droppedOnCompatibleHandle) {
-        this.onDragReleaseSwap(this.downHandle.kind, this.downHandle.index, upHandle.index);
-      } else if (!this.dragged) {
-        this.onHandleClick(this.downHandle.kind, this.downHandle.index);
+        if (toIndex !== this.downHandle.index) {
+          this.onReorderCommit(this.downHandle.kind, this.downHandle.index, toIndex);
+        }
+      } else {
+        this.onHandleTap(this.downHandle.kind, this.downHandle.index);
       }
     }
 
@@ -103,6 +130,7 @@ export class InputController {
     this.pointerDown = false;
     this.downHandle = null;
     this.dragged = false;
+    this.targetIndex = null;
     this.requestRender();
   }
 

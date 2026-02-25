@@ -34,6 +34,22 @@ export class PuzzleBase {
     return true;
   }
 
+  canReorder(type, fromIndex, toIndex) {
+    if (type !== "row" && type !== "col") {
+      return false;
+    }
+
+    if (!Number.isInteger(fromIndex) || !Number.isInteger(toIndex)) {
+      return false;
+    }
+
+    if (fromIndex < 0 || fromIndex >= this.n || toIndex < 0 || toIndex >= this.n) {
+      return false;
+    }
+
+    return fromIndex !== toIndex;
+  }
+
   applySwap(type, i, j) {
     if (!this.canSwap(type, i, j)) {
       return false;
@@ -46,9 +62,27 @@ export class PuzzleBase {
     return true;
   }
 
+  applyReorder(type, fromIndex, toIndex) {
+    if (!this.canReorder(type, fromIndex, toIndex)) {
+      return false;
+    }
+
+    const snapshot = this.createSnapshot();
+    this.reorderPerm(type, fromIndex, toIndex);
+    this.historyStack.push(snapshot);
+    this.moveCount += 1;
+    return true;
+  }
+
   swapPerm(type, i, j) {
     const target = type === "row" ? this.rowPerm : this.colPerm;
     [target[i], target[j]] = [target[j], target[i]];
+  }
+
+  reorderPerm(type, fromIndex, toIndex) {
+    const target = type === "row" ? this.rowPerm : this.colPerm;
+    const [moved] = target.splice(fromIndex, 1);
+    target.splice(toIndex, 0, moved);
   }
 
   createSnapshot() {

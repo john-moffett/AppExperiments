@@ -39,7 +39,6 @@ const boardView = new BoardView(scene, {
 });
 
 let engine = null;
-let selectedHandle = null;
 let hoveredHandle = null;
 let renderQueued = false;
 
@@ -277,7 +276,7 @@ function requestRender() {
   renderQueued = true;
   requestAnimationFrame(() => {
     renderQueued = false;
-    boardView.updateFromEngine(engine, { selectedHandle, hoveredHandle });
+    boardView.updateFromEngine(engine, { selectedHandle: null, hoveredHandle });
     renderer.render(scene, camera);
 
     if (boardView.hasActiveAnimations()) {
@@ -292,104 +291,99 @@ function refreshUi() {
   requestRender();
 }
 
-function onSwapSuccess(kind, i, j) {
-  boardView.flashHandles(kind, i, j);
-  boardView.startSwapAnimation(kind, i, j);
-  requestRender();
+function onReorderSuccess(kind, fromIndex, toIndex) {
+  boardView.clearDragPreview();
+  hoveredHandle = null;
+  boardView.flashHandles(kind, fromIndex, toIndex);
 }
 
-function attemptSwap(kind, i, j, source = "click") {
-  if (isSolved()) {
-    setStatus("Puzzle already solved. Reset to play again.", "good");
-    return false;
-  }
+function attemptReorder(kind, fromIndex, toIndex, source = "drag") {
+  boardView.clearDragPreview();
 
-  if (!engine.canSwap(kind, i, j)) {
-    if (engine.adjacentOnly) {
-      setStatus("Swap blocked: adjacent swaps only.", "warn");
-    } else {
-      setStatus("Swap blocked.", "warn");
-    }
-    return false;
-  }
-
-  const success = engine.applySwap(kind, i, j);
-
-  if (!success) {
-    setStatus("Swap blocked.", "warn");
+  if (fromIndex === toIndex) {
+    setStatus("No change: drop on a different row/column to count a move.", "neutral");
     refreshUi();
     return false;
   }
 
-  onSwapSuccess(kind, i, j);
+  if (isSolved()) {
+    setStatus("Puzzle already solved. Reset to play again.", "good");
+    refreshUi();
+    return false;
+  }
+
+  if (!engine.canReorder(kind, fromIndex, toIndex)) {
+    setStatus("Move blocked.", "warn");
+    refreshUi();
+    return false;
+  }
+
+  const success = engine.applyReorder(kind, fromIndex, toIndex);
+
+  if (!success) {
+    setStatus("Move blocked.", "warn");
+    refreshUi();
+    return false;
+  }
+
+  onReorderSuccess(kind, fromIndex, toIndex);
   const solved = isSolved();
 
   if (solved) {
     setStatus("Solved. All constraints satisfied.", "good");
   } else if (source === "drag") {
-    setStatus(`${kind === "row" ? "Row" : "Column"} swapped by drag.`, "neutral");
+    setStatus(
+      `${kind === "row" ? "Row" : "Column"} moved from ${fromIndex + 1} to ${toIndex + 1}.`,
+      "neutral"
+    );
   } else {
-    setStatus(`${kind === "row" ? "Row" : "Column"} swapped.`, "neutral");
+    setStatus(`${kind === "row" ? "Row" : "Column"} reordered.`, "neutral");
   }
 
   refreshUi();
   return true;
 }
 
-function handleHandleClick(kind, index) {
+function handleHandleTap(kind, index) {
   if (isSolved()) {
     setStatus("Puzzle already solved. Reset to play again.", "good");
     return;
   }
 
-  if (!selectedHandle) {
-    selectedHandle = { kind, index };
-    setStatus(`${kind === "row" ? "Row" : "Column"} ${index + 1} selected.`, "neutral");
-    refreshUi();
-    return;
-  }
-
-  if (selectedHandle.kind !== kind) {
-    selectedHandle = { kind, index };
-    setStatus(`Switched selection to ${kind} ${index + 1}.`, "neutral");
-    refreshUi();
-    return;
-  }
-
-  if (selectedHandle.index === index) {
-    selectedHandle = null;
-    setStatus("Selection cleared.", "neutral");
-    refreshUi();
-    return;
-  }
-
-  const i = selectedHandle.index;
-  const j = index;
-  selectedHandle = null;
-
-  attemptSwap(kind, i, j, "click");
+  setStatus(
+    `Drag ${kind === "row" ? `row ${index + 1}` : `column ${index + 1}`} to a new position, then release.`,
+    "neutral"
+  );
+  requestRender();
 }
 
-function handleDragReleaseSwap(kind, fromIndex, toIndex) {
-  selectedHandle = null;
-  const success = attemptSwap(kind, fromIndex, toIndex, "drag");
-  return success;
+function handleDragPreview(preview) {
+  boardView.setDragPreview(preview);
+  if (preview) {
+    hoveredHandle = { kind: preview.kind, index: preview.toIndex };
+  } else {
+    hoveredHandle = null;
+  }
+}
+
+function handleDragCommit(kind, fromIndex, toIndex) {
+  return attemptReorder(kind, fromIndex, toIndex, "drag");
 }
 
 function initializeGame() {
   engine = createEngine();
-  selectedHandle = null;
   hoveredHandle = null;
+  boardView.clearDragPreview();
 
   configureBoardFromEngine();
-  setStatus("Image mode loaded. Tap two row/column handles or drag between two headings to swap strips.", "neutral");
+  setStatus("Image mode loaded. Drag row/column headings to reorder strips.", "neutral");
   refreshUi();
 }
 
 function resetCurrentMode() {
   engine.reset();
-  selectedHandle = null;
   hoveredHandle = null;
+  boardView.clearDragPreview();
   setStatus("Puzzle reset to start state.", "neutral");
   refreshUi();
 }
@@ -402,7 +396,8 @@ function undoMove() {
     return;
   }
 
-  selectedHandle = null;
+  hoveredHandle = null;
+  boardView.clearDragPreview();
   setStatus("Move undone.", "neutral");
   refreshUi();
 }
@@ -411,8 +406,8 @@ function setCurrentImageSource(imageSource, message = "Image updated.") {
   currentImageSource = imageSource;
 
   engine = createEngine();
-  selectedHandle = null;
   hoveredHandle = null;
+  boardView.clearDragPreview();
   configureBoardFromEngine();
   setStatus(`${message} New strong scramble generated.`, "neutral");
   refreshUi();
@@ -438,8 +433,10 @@ const input = new InputController({
   domElement: renderer.domElement,
   camera,
   getTargets: () => boardView.getRaycastTargets(),
-  onHandleClick: handleHandleClick,
-  onDragReleaseSwap: handleDragReleaseSwap,
+  getDropIndex: (kind, worldPoint) => boardView.getDropIndex(kind, worldPoint),
+  onDragPreview: handleDragPreview,
+  onReorderCommit: handleDragCommit,
+  onHandleTap: handleHandleTap,
   onHoverHandle: (handle) => {
     hoveredHandle = handle;
   },
