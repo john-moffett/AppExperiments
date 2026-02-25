@@ -6,6 +6,7 @@ import { InputController } from "./input/InputController.js";
 
 const imageInputEl = document.getElementById("image-input");
 const gridSizeSelectEl = document.getElementById("grid-size-select");
+const difficultySelectEl = document.getElementById("difficulty-select");
 const demoImageBtn = document.getElementById("demo-image-btn");
 const resetBtn = document.getElementById("reset-btn");
 const undoBtn = document.getElementById("undo-btn");
@@ -52,6 +53,7 @@ let bestPossibleStart = { rowMin: 0, colMin: 0, total: 0 };
 let currentImageSource = createDemoImage();
 let currentImageSeedKey = "builtin-demo-v1";
 let gridSize = parseGridSize(gridSizeSelectEl?.value);
+let difficultyMode = parseDifficultyMode(difficultySelectEl?.value);
 
 function createDemoImage(size = 1200) {
   const canvas = document.createElement("canvas");
@@ -171,6 +173,10 @@ function parseGridSize(value) {
   return Math.max(4, Math.min(10, parsed));
 }
 
+function parseDifficultyMode(value) {
+  return value === "hard" ? "hard" : "normal";
+}
+
 function isSolved() {
   return engine?.isSolved() ?? false;
 }
@@ -205,6 +211,38 @@ function createSeededRng(seedKey, streamKey = "") {
   return mulberry32(seedGen());
 }
 
+function hashBytesFnv1a(bytes) {
+  let hash = 2166136261;
+  for (let i = 0; i < bytes.length; i += 1) {
+    hash ^= bytes[i];
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
+function deriveImageSeedKey(imageSource, namespace = "image") {
+  const sampleSize = 64;
+  const width = imageSource.naturalWidth ?? imageSource.width ?? sampleSize;
+  const height = imageSource.naturalHeight ?? imageSource.height ?? sampleSize;
+  const canvas = document.createElement("canvas");
+  canvas.width = sampleSize;
+  canvas.height = sampleSize;
+  const ctx = canvas.getContext("2d");
+
+  if (!ctx) {
+    return `${namespace}|${width}x${height}|fallback`;
+  }
+
+  try {
+    ctx.drawImage(imageSource, 0, 0, sampleSize, sampleSize);
+    const data = ctx.getImageData(0, 0, sampleSize, sampleSize).data;
+    const hash = hashBytesFnv1a(data);
+    return `${namespace}|${width}x${height}|${hash.toString(16)}`;
+  } catch {
+    return `${namespace}|${width}x${height}|draw-error`;
+  }
+}
+
 function randomPermutation(n, rng) {
   const result = Array.from({ length: n }, (_, i) => i);
   for (let i = n - 1; i > 0; i -= 1) {
@@ -224,78 +262,149 @@ function countFixedPoints(perm) {
   return count;
 }
 
-function countInversions(perm) {
-  let inversions = 0;
+function minInsertMovesForPerm(perm) {
+  const tails = [];
+
   for (let i = 0; i < perm.length; i += 1) {
-    for (let j = i + 1; j < perm.length; j += 1) {
-      if (perm[i] > perm[j]) {
-        inversions += 1;
+    const value = perm[i];
+    let lo = 0;
+    let hi = tails.length;
+
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (tails[mid] < value) {
+        lo = mid + 1;
+      } else {
+        hi = mid;
       }
     }
+
+    tails[lo] = value;
   }
-  return inversions;
+
+  return perm.length - tails.length;
 }
 
-function countAdjacentSourceNeighbors(perm) {
-  let count = 0;
-  for (let i = 0; i < perm.length - 1; i += 1) {
-    if (Math.abs(perm[i] - perm[i + 1]) === 1) {
-      count += 1;
-    }
-  }
-  return count;
-}
-
-function permutationScrambleScore(perm) {
-  const inversions = countInversions(perm);
-  const displacement = perm.reduce((sum, value, index) => sum + Math.abs(value - index), 0);
-  return inversions * (perm.length + 1) + displacement;
-}
-
-function createStrongScramblePerm(n, rng) {
-  const attemptBudget = n <= 6 ? 12000 : 8000;
-  let bestStrict = null;
-  let bestFallback = null;
-
+function createRandomDerangement(n, rng, attemptBudget = 240) {
   for (let attempt = 0; attempt < attemptBudget; attempt += 1) {
     const perm = randomPermutation(n, rng);
-    if (countFixedPoints(perm) !== 0) {
-      continue;
-    }
-
-    const score = permutationScrambleScore(perm);
-    if (!bestFallback || score > bestFallback.score) {
-      bestFallback = { perm, score };
-    }
-
-    if (countAdjacentSourceNeighbors(perm) !== 0) {
-      continue;
-    }
-
-    if (!bestStrict || score > bestStrict.score) {
-      bestStrict = { perm, score };
+    if (countFixedPoints(perm) === 0) {
+      return perm;
     }
   }
 
-  if (bestStrict) {
-    return bestStrict.perm;
+  const shift = 1 + Math.floor(rng() * Math.max(1, n - 1));
+  return Array.from({ length: n }, (_, i) => (i + shift) % n);
+}
+
+function getDifficultyTargetRange(n, difficulty) {
+  if (difficulty === "hard") {
+    if (n === 5) {
+      return { min: 5, max: 6 };
+    }
+
+    if (n < 5) {
+      return { min: 4, max: Number.POSITIVE_INFINITY };
+    }
+
+    return { min: 5, max: Number.POSITIVE_INFINITY };
   }
 
-  if (bestFallback) {
-    return bestFallback.perm;
+  if (n === 5) {
+    return { min: 4, max: 6 };
   }
 
-  return randomPermutation(n, rng);
+  if (n < 5) {
+    return { min: 3, max: Number.POSITIVE_INFINITY };
+  }
+
+  return { min: 4, max: Number.POSITIVE_INFINITY };
+}
+
+function isTotalInRange(total, range) {
+  return total >= range.min && total <= range.max;
+}
+
+function distanceToRange(total, range) {
+  if (total < range.min) {
+    return range.min - total;
+  }
+
+  if (total > range.max) {
+    return total - range.max;
+  }
+
+  return 0;
+}
+
+function isBetterScrambleFallback(a, b, range, difficulty) {
+  const aDistance = distanceToRange(a.totalMinMoves, range);
+  const bDistance = distanceToRange(b.totalMinMoves, range);
+  if (aDistance !== bDistance) {
+    return aDistance < bDistance;
+  }
+
+  if (difficulty === "hard") {
+    if (a.totalMinMoves !== b.totalMinMoves) {
+      return a.totalMinMoves > b.totalMinMoves;
+    }
+  } else if (a.totalMinMoves !== b.totalMinMoves) {
+    return a.totalMinMoves < b.totalMinMoves;
+  }
+
+  const aKey = `${a.rowPerm.join(",")}|${a.colPerm.join(",")}`;
+  const bKey = `${b.rowPerm.join(",")}|${b.colPerm.join(",")}`;
+  return aKey < bKey;
+}
+
+function createSeededScramblePair(n, seedKey, difficulty) {
+  const rng = createSeededRng(seedKey, "scramble");
+  const targetRange = getDifficultyTargetRange(n, difficulty);
+  const attemptBudget = n <= 6 ? 22000 : 14000;
+  let fallback = null;
+
+  for (let attempt = 0; attempt < attemptBudget; attempt += 1) {
+    const rowPerm = createRandomDerangement(n, rng);
+    const colPerm = createRandomDerangement(n, rng);
+    const rowMinMoves = minInsertMovesForPerm(rowPerm);
+    const colMinMoves = minInsertMovesForPerm(colPerm);
+    const totalMinMoves = rowMinMoves + colMinMoves;
+
+    const candidate = {
+      rowPerm,
+      colPerm,
+      rowMinMoves,
+      colMinMoves,
+      totalMinMoves
+    };
+
+    if (!fallback || isBetterScrambleFallback(candidate, fallback, targetRange, difficulty)) {
+      fallback = candidate;
+    }
+
+    if (isTotalInRange(totalMinMoves, targetRange)) {
+      return {
+        ...candidate,
+        acceptedTarget: true,
+        targetRange
+      };
+    }
+  }
+
+  return {
+    ...fallback,
+    acceptedTarget: false,
+    targetRange
+  };
 }
 
 function createEngine() {
   const puzzle = getPuzzleForMode("I");
   puzzle.n = gridSize;
-  const scrambleKey = `${currentImageSeedKey}|n:${gridSize}`;
-  const rowRng = createSeededRng(scrambleKey, "rows");
-  const colRng = createSeededRng(scrambleKey, "cols");
-  puzzle.startRowPerm = createStrongScramblePerm(gridSize, rowRng);
-  puzzle.startColPerm = createStrongScramblePerm(gridSize, colRng);
+  const scrambleKey = `${currentImageSeedKey}|n:${gridSize}|difficulty:${difficultyMode}`;
+  const scramble = createSeededScramblePair(gridSize, scrambleKey, difficultyMode);
+  puzzle.startRowPerm = scramble.rowPerm;
+  puzzle.startColPerm = scramble.colPerm;
   return new ModeImageEngine(puzzle, currentImageSource);
 }
 
@@ -507,9 +616,11 @@ async function initializeGame() {
 
   try {
     currentImageSource = await loadImageFromUrl(DEFAULT_IMAGE_URL.href);
+    currentImageSeedKey = deriveImageSeedKey(currentImageSource, "default-image");
     startupMessage = "Loaded default image: cat.png. Drag row/column headings to reorder strips.";
   } catch {
     currentImageSource = createDemoImage();
+    currentImageSeedKey = deriveImageSeedKey(currentImageSource, "demo-fallback");
     startupMessage = "Could not load cat.png. Using built-in demo image.";
     startupTone = "warn";
   }
@@ -548,15 +659,16 @@ function undoMove() {
   refreshUi();
 }
 
-function setCurrentImageSource(imageSource, message = "Image updated.") {
+function setCurrentImageSource(imageSource, message = "Image updated.", seedNamespace = "image") {
   currentImageSource = imageSource;
+  currentImageSeedKey = deriveImageSeedKey(imageSource, seedNamespace);
 
   initializePuzzleEngine(createEngine());
   hoveredHandle = null;
   boardView.clearDragPreview();
   boardView.clearHint();
   configureBoardFromEngine();
-  setStatus(`${message} New strong scramble generated.`, "neutral");
+  setStatus(`${message} New seeded ${difficultyMode} scramble generated.`, "neutral");
   refreshUi();
 }
 
@@ -580,7 +692,31 @@ function setGridSize(nextSize) {
   boardView.clearDragPreview();
   boardView.clearHint();
   configureBoardFromEngine();
-  setStatus(`Grid set to ${gridSize}x${gridSize}. New strong scramble generated.`, "neutral");
+  setStatus(`Grid set to ${gridSize}x${gridSize}. New seeded ${difficultyMode} scramble generated.`, "neutral");
+  refreshUi();
+}
+
+function setDifficultyMode(nextMode) {
+  const parsed = parseDifficultyMode(nextMode);
+  if (parsed === difficultyMode && engine) {
+    return;
+  }
+
+  difficultyMode = parsed;
+  if (difficultySelectEl) {
+    difficultySelectEl.value = difficultyMode;
+  }
+
+  if (!engine) {
+    return;
+  }
+
+  initializePuzzleEngine(createEngine());
+  hoveredHandle = null;
+  boardView.clearDragPreview();
+  boardView.clearHint();
+  configureBoardFromEngine();
+  setStatus(`Difficulty set to ${difficultyMode}. New seeded scramble generated.`, "neutral");
   refreshUi();
 }
 
@@ -631,7 +767,7 @@ imageInputEl.addEventListener("change", async () => {
 
   try {
     const image = await loadImageFromFile(file);
-    setCurrentImageSource(image, `Loaded image: ${file.name}`);
+    setCurrentImageSource(image, `Loaded image: ${file.name}`, "uploaded-image");
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unable to load that image.";
     setStatus(message, "bad");
@@ -641,11 +777,15 @@ imageInputEl.addEventListener("change", async () => {
 });
 
 demoImageBtn.addEventListener("click", () => {
-  setCurrentImageSource(createDemoImage(), "Switched to built-in demo image.");
+  setCurrentImageSource(createDemoImage(), "Switched to built-in demo image.", "builtin-demo");
 });
 
 gridSizeSelectEl?.addEventListener("change", () => {
   setGridSize(gridSizeSelectEl.value);
+});
+
+difficultySelectEl?.addEventListener("change", () => {
+  setDifficultyMode(difficultySelectEl.value);
 });
 
 resetBtn.addEventListener("click", () => {
