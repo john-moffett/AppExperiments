@@ -1,14 +1,17 @@
 import * as THREE from "three";
 
-const BASE_STYLE = {
-  idleBg: "#e8eef2",
-  hoverBg: "#d5ecf5",
-  selectedBg: "#1d7596",
-  selectedText: "#f7fcff",
-  flashBg: "#f4d16f",
-  border: "#6d8491",
-  borderSelected: "#164f65",
-  text: "#193340"
+const DARK_STYLE = {
+  idleBg: "rgba(18, 28, 40, 0.7)",
+  idleBorder: "rgba(100, 140, 170, 0.25)",
+  hoverBg: "rgba(34, 211, 238, 0.08)",
+  hoverBorder: "rgba(34, 211, 238, 0.45)",
+  selectedBg: "rgba(34, 211, 238, 0.15)",
+  selectedBorder: "rgba(34, 211, 238, 0.8)",
+  flashBg: "rgba(240, 180, 41, 0.15)",
+  flashBorder: "rgba(240, 180, 41, 0.7)",
+  idleText: "rgba(180, 200, 215, 0.7)",
+  selectedText: "#22d3ee",
+  flashText: "#f0b429"
 };
 
 export class HandleMesh {
@@ -43,17 +46,12 @@ export class HandleMesh {
     if (this.label === label) {
       return;
     }
-
     this.label = label;
     this.redraw();
   }
 
   setState(nextState) {
-    const merged = {
-      ...this.state,
-      ...nextState
-    };
-
+    const merged = { ...this.state, ...nextState };
     if (
       merged.selected === this.state.selected &&
       merged.hovered === this.state.hovered &&
@@ -61,7 +59,6 @@ export class HandleMesh {
     ) {
       return;
     }
-
     this.state = merged;
     this.redraw();
   }
@@ -69,39 +66,64 @@ export class HandleMesh {
   redraw() {
     const size = this.canvas.width;
     const ctx = this.ctx;
+    const r = size * 0.35;
 
     ctx.clearRect(0, 0, size, size);
 
-    let bg = BASE_STYLE.idleBg;
-    let textColor = BASE_STYLE.text;
-    let border = BASE_STYLE.border;
-
-    if (this.state.flash) {
-      bg = BASE_STYLE.flashBg;
-    }
+    let bg = DARK_STYLE.idleBg;
+    let borderColor = DARK_STYLE.idleBorder;
+    let textColor = DARK_STYLE.idleText;
+    let glowBlur = 0;
 
     if (this.state.hovered) {
-      bg = BASE_STYLE.hoverBg;
+      bg = DARK_STYLE.hoverBg;
+      borderColor = DARK_STYLE.hoverBorder;
+      textColor = DARK_STYLE.selectedText;
     }
 
     if (this.state.selected) {
-      bg = BASE_STYLE.selectedBg;
-      textColor = BASE_STYLE.selectedText;
-      border = BASE_STYLE.borderSelected;
+      bg = DARK_STYLE.selectedBg;
+      borderColor = DARK_STYLE.selectedBorder;
+      textColor = DARK_STYLE.selectedText;
+      glowBlur = 16;
     }
 
+    if (this.state.flash) {
+      bg = DARK_STYLE.flashBg;
+      borderColor = DARK_STYLE.flashBorder;
+      textColor = DARK_STYLE.flashText;
+      glowBlur = 20;
+    }
+
+    // Pill shape background
+    ctx.beginPath();
+    ctx.roundRect(4, 4, size - 8, size - 8, r);
+
     ctx.fillStyle = bg;
-    ctx.fillRect(0, 0, size, size);
+    ctx.fill();
 
-    ctx.strokeStyle = border;
-    ctx.lineWidth = 12;
-    ctx.strokeRect(0, 0, size, size);
+    // Glow effect for selected/flash
+    if (glowBlur > 0) {
+      ctx.save();
+      ctx.shadowColor = borderColor;
+      ctx.shadowBlur = glowBlur;
+      ctx.strokeStyle = borderColor;
+      ctx.lineWidth = 4;
+      ctx.stroke();
+      ctx.restore();
+    }
 
+    // Border
+    ctx.strokeStyle = borderColor;
+    ctx.lineWidth = 4;
+    ctx.stroke();
+
+    // Label text
     ctx.fillStyle = textColor;
-    ctx.font = `700 ${Math.floor(size * 0.36)}px "Chakra Petch", "Trebuchet MS", sans-serif`;
+    ctx.font = `700 ${Math.floor(size * 0.34)}px "Chakra Petch", "Trebuchet MS", sans-serif`;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText(this.label, size * 0.5, size * 0.56);
+    ctx.fillText(this.label, size * 0.5, size * 0.54);
 
     this.texture.needsUpdate = true;
   }

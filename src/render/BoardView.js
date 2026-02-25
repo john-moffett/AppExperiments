@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { TileMesh } from "./TileMesh.js";
 import { HandleMesh } from "./HandleMesh.js";
+import { SpringVec3, Spring } from "./SpringSystem.js";
 
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
@@ -10,7 +11,7 @@ export class BoardView {
   constructor(scene, options = {}) {
     this.scene = scene;
     this.cellSize = options.cellSize ?? 1.0;
-    this.gap = options.gap ?? 0.08;
+    this.gap = options.gap ?? 0.04;
     this.handleSize = options.handleSize ?? 0.6;
     this.handleGap = options.handleGap ?? 0.25;
 
@@ -24,6 +25,9 @@ export class BoardView {
     this.rowHandles = [];
     this.colHandles = [];
 
+    this.tileSprings = []; // SpringVec3 per tile
+    this.tileScaleSprings = []; // Spring per tile
+
     this.raycastTargets = [];
     this.flashUntil = new Map();
     this.dragPreview = null;
@@ -31,22 +35,24 @@ export class BoardView {
 
     this.n = 0;
     this.bounds = null;
+    this.shimmerTime = 0;
+    this.winAnimating = false;
 
     this.hintLineMaterial = new THREE.LineBasicMaterial({
-      color: 0xff9a2e,
+      color: 0xf0b429,
       transparent: true,
       opacity: 0.95
     });
     this.hintHeadMaterial = new THREE.MeshBasicMaterial({
-      color: 0xff9a2e,
+      color: 0xf0b429,
       transparent: true,
       opacity: 0.95
     });
     this.hintHeadGeometry = new THREE.ConeGeometry(0.11, 0.26, 20);
     this.hintLineGeometry = new THREE.BufferGeometry();
     this.hintLine = new THREE.Line(this.hintLineGeometry, this.hintLineMaterial);
-    this.hintLine.position.z = 0.34;
     this.hintHead = new THREE.Mesh(this.hintHeadGeometry, this.hintHeadMaterial);
+    this.hintLine.position.z = 0.34;
     this.hintHead.position.z = 0.34;
     this.hintLine.visible = false;
     this.hintHead.visible = false;
@@ -60,6 +66,8 @@ export class BoardView {
     this.tiles = [];
     this.rowHandles = [];
     this.colHandles = [];
+    this.tileSprings = [];
+    this.tileScaleSprings = [];
     this.raycastTargets = [];
 
     const boardW = n * this.cellSize + (n - 1) * this.gap;
@@ -79,8 +87,12 @@ export class BoardView {
     const tileGroup = new THREE.Group();
     tileGroup.name = "tiles";
 
+    const springOpts = { stiffness: 200, damping: 18, mass: 1 };
+
     for (let r = 0; r < n; r += 1) {
       const row = [];
+      const springRow = [];
+      const scaleRow = [];
       for (let c = 0; c < n; c += 1) {
         const tile = new TileMesh(this.cellSize);
         const x = originX + c * (this.cellSize + this.gap);
@@ -89,8 +101,18 @@ export class BoardView {
         tile.mesh.userData = { kind: "tile", row: r, col: c };
         row.push(tile);
         tileGroup.add(tile.mesh);
+
+        const spring = new SpringVec3(springOpts);
+        spring.snap(x, y, 0);
+        springRow.push(spring);
+
+        const scaleSpr = new Spring({ stiffness: 180, damping: 16 });
+        scaleSpr.snap(1);
+        scaleRow.push(scaleSpr);
       }
       this.tiles.push(row);
+      this.tileSprings.push(springRow);
+      this.tileScaleSprings.push(scaleRow);
     }
 
     const rowHandleGroup = new THREE.Group();
@@ -140,12 +162,10 @@ export class BoardView {
 
   getDropIndex(kind, worldPoint) {
     const step = this.cellSize + this.gap;
-
     if (kind === "row") {
       const relative = (this.bounds.originY - worldPoint.y) / step;
       return clamp(Math.round(relative), 0, this.n - 1);
     }
-
     const relative = (worldPoint.x - this.bounds.originX) / step;
     return clamp(Math.round(relative), 0, this.n - 1);
   }
@@ -169,7 +189,130 @@ export class BoardView {
   }
 
   hasActiveAnimations() {
+    for (let r = 0; r < this.n; r++) {
+      for (let c = 0; c < this.n; c++) {
+        if (!this.tileSprings[r][c].isSettled()) return true;
+        if (!this.tileScaleSprings[r][c].isSettled()) return true;
+      }
+    }
+    // shimmer always active if any tiles are matched
+    for (let r = 0; r < this.n; r++) {
+      for (let c = 0; c < this.n; c++) {
+        if (this.tiles[r][c].isMatch) return true;
+      }
+    }
     return false;
+  }
+
+  animate(dt) {
+    // Advance shimmer
+    this.shimmerTime += dt;
+    const shimmerPhase = (this.shimmerTime * 0.4) % 1;
+
+    for (let r = 0; r < this.n; r++) {
+      for (let c = 0; c < this.n; c++) {
+        const spring = this.tileSprings[r][c];
+        const scaleSpr = this.tileScaleSprings[r][c];
+        spring.advance(dt);
+        scaleSpr.advance(dt);
+
+        const tile = this.tiles[r][c];
+        tile.mesh.position.set(spring.x.value, spring.y.value, spring.z.value);
+
+        const s = scaleSpr.value;
+        tile.mesh.scale.set(s, s, 1);
+
+        // Update shimmer on match tiles
+        if (tile.isMatch) {
+          tile.shimmerPhase = shimmerPhase;
+          tile.drawFromLast();
+        }
+      }
+    }
+  }
+
+  reorderSprings(kind, fromIndex, toIndex) {
+    if (kind === "row") {
+      const movedSprings = this.tileSprings[fromIndex];
+      const movedScaleSprings = this.tileScaleSprings[fromIndex];
+      if (fromIndex < toIndex) {
+        for (let r = fromIndex; r < toIndex; r++) {
+          this.tileSprings[r] = this.tileSprings[r + 1];
+          this.tileScaleSprings[r] = this.tileScaleSprings[r + 1];
+        }
+      } else {
+        for (let r = fromIndex; r > toIndex; r--) {
+          this.tileSprings[r] = this.tileSprings[r - 1];
+          this.tileScaleSprings[r] = this.tileScaleSprings[r - 1];
+        }
+      }
+      this.tileSprings[toIndex] = movedSprings;
+      this.tileScaleSprings[toIndex] = movedScaleSprings;
+    } else {
+      for (let r = 0; r < this.n; r++) {
+        const movedSpring = this.tileSprings[r][fromIndex];
+        const movedScaleSpring = this.tileScaleSprings[r][fromIndex];
+        if (fromIndex < toIndex) {
+          for (let c = fromIndex; c < toIndex; c++) {
+            this.tileSprings[r][c] = this.tileSprings[r][c + 1];
+            this.tileScaleSprings[r][c] = this.tileScaleSprings[r][c + 1];
+          }
+        } else {
+          for (let c = fromIndex; c > toIndex; c--) {
+            this.tileSprings[r][c] = this.tileSprings[r][c - 1];
+            this.tileScaleSprings[r][c] = this.tileScaleSprings[r][c - 1];
+          }
+        }
+        this.tileSprings[r][toIndex] = movedSpring;
+        this.tileScaleSprings[r][toIndex] = movedScaleSpring;
+      }
+    }
+  }
+
+  animateWinCollapse(onComplete) {
+    this.winAnimating = true;
+
+    // Set spring targets to gap=0 positions
+    const step = this.cellSize; // no gap
+    const boardW = this.n * this.cellSize;
+    const originX = -boardW / 2 + this.cellSize / 2;
+    const originY = boardW / 2 - this.cellSize / 2;
+
+    for (let r = 0; r < this.n; r++) {
+      for (let c = 0; c < this.n; c++) {
+        const x = originX + c * step;
+        const y = originY - r * step;
+        this.tileSprings[r][c].setTarget(x, y, 0);
+      }
+    }
+
+    // Fade borders over 800ms
+    let elapsed = 0;
+    const fadeDuration = 0.8;
+    const fadeInterval = setInterval(() => {
+      elapsed += 1 / 60;
+      const t = Math.min(elapsed / fadeDuration, 1);
+      const opacity = 1 - t;
+      for (let r = 0; r < this.n; r++) {
+        for (let c = 0; c < this.n; c++) {
+          this.tiles[r][c].borderOpacity = opacity;
+          this.tiles[r][c].drawFromLast();
+        }
+      }
+      if (t >= 1) {
+        clearInterval(fadeInterval);
+        this.winAnimating = false;
+        if (onComplete) onComplete();
+      }
+    }, 1000 / 60);
+  }
+
+  resetBorderOpacity() {
+    for (let r = 0; r < this.n; r++) {
+      for (let c = 0; c < this.n; c++) {
+        this.tiles[r][c].borderOpacity = 1;
+      }
+    }
   }
 
   flashHandles(type, i, j, durationMs = 190) {
@@ -191,13 +334,22 @@ export class BoardView {
     for (let r = 0; r < engine.n; r += 1) {
       for (let c = 0; c < engine.n; c += 1) {
         const tile = this.tiles[r][c];
+        const spring = this.tileSprings[r][c];
+        const scaleSpr = this.tileScaleSprings[r][c];
         const motion = this.getDragMotion(r, c);
         const baseX = this.bounds.originX + c * step;
         const baseY = this.bounds.originY - r * step;
 
-        tile.mesh.position.set(baseX + motion.offsetX, baseY + motion.offsetY, motion.liftZ);
+        // Set spring targets
+        spring.setTarget(baseX + motion.offsetX, baseY + motion.offsetY, motion.liftZ);
+
+        // For drag, snap directly (no spring delay on dragged tile)
+        if (motion.depthAmount >= 0.9) {
+          spring.snap(baseX + motion.offsetX, baseY + motion.offsetY, motion.liftZ);
+        }
+
         tile.mesh.rotation.set(motion.rotX, motion.rotY, 0);
-        tile.mesh.scale.set(1 + motion.scaleBoost, 1 + motion.scaleBoost, 1);
+        scaleSpr.setTarget(1 + motion.scaleBoost);
         tile.setDepth(motion.depthAmount);
 
         const cellData = engine.getCellRenderData(r, c);
@@ -215,7 +367,6 @@ export class BoardView {
             (activeHandle.kind === "col" && activeHandle.index === c));
 
         const highlight = Boolean(highlightFromDrag || highlightFromHover);
-
         tile.setHighlighted(Boolean(highlight));
 
         if (cellData.mode === "single") {
@@ -387,6 +538,8 @@ export class BoardView {
     }
 
     this.tiles = [];
+    this.tileSprings = [];
+    this.tileScaleSprings = [];
 
     disposeGroup(this.rowHandles);
     disposeGroup(this.colHandles);

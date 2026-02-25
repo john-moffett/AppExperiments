@@ -1,16 +1,15 @@
 @import url("https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;700&family=Manrope:wght@500;700&display=swap");
 
 :root {
-  --bg-top: #efe7db;
-  --bg-bottom: #dbe8ef;
-  --panel: #f7f8fb;
-  --ink: #172a34;
-  --muted: #4b6270;
-  --line: #9cb0bb;
-  --accent: #0f6f91;
-  --good: #138a4b;
-  --warn: #b75222;
-  --bad: #b03b31;
+  --bg: #0d1117;
+  --panel: rgba(18, 25, 34, 0.85);
+  --ink: #e2e8f0;
+  --muted: #8b9eb3;
+  --line: rgba(100, 130, 160, 0.25);
+  --accent: #22d3ee;
+  --good: #f0b429;
+  --warn: #f59e0b;
+  --bad: #ef4444;
 }
 
 * {
@@ -26,10 +25,7 @@ body {
 body {
   font-family: "Manrope", "Avenir Next", "Trebuchet MS", sans-serif;
   color: var(--ink);
-  background:
-    radial-gradient(circle at 18% 12%, #ffe7ba 0%, #f7ecd7 24%, transparent 43%),
-    radial-gradient(circle at 84% 4%, #c8f0ea 0%, #dff8f1 26%, transparent 45%),
-    linear-gradient(135deg, var(--bg-top), var(--bg-bottom));
+  background: linear-gradient(160deg, #0a0e14 0%, #111a24 100%);
 }
 
 #app {
@@ -48,10 +44,12 @@ body {
   gap: 0.9rem;
   flex-wrap: wrap;
   padding: 0.8rem;
-  border: 1px solid color-mix(in oklab, var(--line), white 25%);
+  border: 1px solid var(--line);
   border-radius: 14px;
-  background: color-mix(in oklab, var(--panel), white 35%);
-  box-shadow: 0 10px 22px rgba(24, 44, 62, 0.08);
+  background: var(--panel);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: 0 10px 22px rgba(0, 0, 0, 0.35);
 }
 
 .controls-left,
@@ -75,9 +73,9 @@ body {
   font-size: 0.9rem;
   font-weight: 700;
   border-radius: 10px;
-  border: 1px solid color-mix(in oklab, var(--accent), black 12%);
-  background: color-mix(in oklab, white, #cde7f0 34%);
-  color: color-mix(in oklab, var(--accent), black 20%);
+  border: 1px solid rgba(34, 211, 238, 0.3);
+  background: rgba(34, 211, 238, 0.08);
+  color: var(--accent);
   padding: 0.42rem 0.72rem;
 }
 
@@ -85,6 +83,7 @@ body {
   max-width: 220px;
   font-family: "Manrope", sans-serif;
   font-size: 0.78rem;
+  color: var(--muted);
 }
 
 button,
@@ -92,30 +91,49 @@ select {
   font-family: "Chakra Petch", "Manrope", sans-serif;
   font-size: 0.95rem;
   border-radius: 10px;
-  border: 1px solid color-mix(in oklab, var(--accent), black 12%);
-  background: color-mix(in oklab, white, #cde7f0 34%);
-  color: color-mix(in oklab, var(--accent), black 20%);
+  border: 1px solid rgba(34, 211, 238, 0.2);
+  background: rgba(34, 211, 238, 0.06);
+  color: var(--accent);
   padding: 0.42rem 0.72rem;
+  transition: transform 120ms ease, border-color 200ms ease, box-shadow 200ms ease, background 200ms ease;
+}
+
+select {
+  color: var(--muted);
+}
+
+select option {
+  background: #1a2332;
+  color: var(--ink);
 }
 
 button {
   cursor: pointer;
-  transition: transform 120ms ease, filter 120ms ease;
 }
 
 button:hover {
-  filter: brightness(1.03);
+  border-color: rgba(34, 211, 238, 0.5);
+  box-shadow: 0 0 12px rgba(34, 211, 238, 0.15);
+  background: rgba(34, 211, 238, 0.12);
 }
 
 button:active {
   transform: translateY(1px);
 }
 
+button:disabled {
+  opacity: 0.35;
+  cursor: default;
+  box-shadow: none;
+}
+
 .stat-pill {
   min-width: 100px;
-  border: 1px solid color-mix(in oklab, var(--line), white 20%);
+  border: 1px solid var(--line);
   border-radius: 10px;
-  background: rgba(255, 255, 255, 0.78);
+  background: rgba(18, 25, 34, 0.6);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
   padding: 0.35rem 0.55rem;
   display: grid;
   gap: 0.05rem;
@@ -132,14 +150,15 @@ button:active {
   font-family: "Chakra Petch", "Manrope", sans-serif;
   font-size: 1rem;
   font-weight: 700;
+  color: var(--ink);
 }
 
 .board-area {
   position: relative;
-  border: 1px solid color-mix(in oklab, var(--line), white 20%);
+  border: 1px solid var(--line);
   border-radius: 14px;
-  background: color-mix(in oklab, var(--panel), white 40%);
-  box-shadow: 0 16px 28px rgba(24, 44, 62, 0.1);
+  background: transparent;
+  box-shadow: 0 16px 28px rgba(0, 0, 0, 0.3);
   overflow: hidden;
 }
 
@@ -160,8 +179,9 @@ button:active {
   inset: 0;
   display: grid;
   place-items: center;
-  background: rgba(11, 24, 36, 0.42);
-  backdrop-filter: blur(3px);
+  background: rgba(6, 10, 16, 0.6);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
 }
 
 #win-overlay.hidden {
@@ -171,10 +191,13 @@ button:active {
 .win-card {
   width: min(360px, 92vw);
   border-radius: 14px;
-  border: 1px solid color-mix(in oklab, var(--good), white 35%);
-  background: color-mix(in oklab, white, #d7f3e4 25%);
+  border: 1px solid rgba(240, 180, 41, 0.4);
+  background: rgba(18, 25, 34, 0.92);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   padding: 1rem;
   text-align: center;
+  box-shadow: 0 0 30px rgba(240, 180, 41, 0.1);
   animation: reveal 250ms ease;
 }
 
@@ -182,16 +205,32 @@ button:active {
   margin: 0;
   font-family: "Chakra Petch", "Manrope", sans-serif;
   font-size: 1.4rem;
+  color: var(--good);
 }
 
 .win-card p {
   margin: 0.6rem 0 1rem;
+  color: var(--muted);
+}
+
+.win-card button {
+  border-color: rgba(240, 180, 41, 0.4);
+  color: var(--good);
+  background: rgba(240, 180, 41, 0.08);
+}
+
+.win-card button:hover {
+  border-color: rgba(240, 180, 41, 0.6);
+  box-shadow: 0 0 12px rgba(240, 180, 41, 0.15);
+  background: rgba(240, 180, 41, 0.14);
 }
 
 .status-row {
-  border: 1px solid color-mix(in oklab, var(--line), white 25%);
+  border: 1px solid var(--line);
   border-radius: 10px;
-  background: rgba(255, 255, 255, 0.76);
+  background: var(--panel);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   padding: 0.62rem 0.78rem;
   color: var(--muted);
   min-height: 2.4rem;

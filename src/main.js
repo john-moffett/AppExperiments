@@ -1,8 +1,14 @@
 import * as THREE from "three";
+import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
+import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
+import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
+import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 import { getPuzzleForMode } from "./puzzles.js";
 import { ModeImageEngine } from "./engine/ModeImageEngine.js";
 import { BoardView } from "./render/BoardView.js";
 import { InputController } from "./input/InputController.js";
+import { BokehBackground } from "./render/BokehBackground.js";
+import { ParticleBurst } from "./render/ParticleBurst.js";
 
 const imageInputEl = document.getElementById("image-input");
 const gridSizeSelectEl = document.getElementById("grid-size-select");
@@ -33,10 +39,65 @@ const scene = new THREE.Scene();
 const camera = new THREE.OrthographicCamera(-5, 5, 5, -5, 0.1, 100);
 camera.position.set(0, 0, 10);
 
-const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-renderer.setClearColor(0x000000, 0);
+renderer.setClearColor(0x0a0e14, 1);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.0;
 boardRoot.appendChild(renderer.domElement);
+
+// Dark gradient background plane
+const bgGeometry = new THREE.PlaneGeometry(40, 40);
+const bgMaterial = new THREE.ShaderMaterial({
+  uniforms: {
+    uColor1: { value: new THREE.Color(0x0a0e14) },
+    uColor2: { value: new THREE.Color(0x111a24) }
+  },
+  vertexShader: `
+    varying vec2 vUv;
+    void main() {
+      vUv = uv;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    }
+  `,
+  fragmentShader: `
+    uniform vec3 uColor1;
+    uniform vec3 uColor2;
+    varying vec2 vUv;
+    void main() {
+      gl_FragColor = vec4(mix(uColor1, uColor2, vUv.y * 0.6 + vUv.x * 0.4), 1.0);
+    }
+  `,
+  depthWrite: false
+});
+const bgPlane = new THREE.Mesh(bgGeometry, bgMaterial);
+bgPlane.position.z = -2;
+scene.add(bgPlane);
+
+// Bokeh background particles
+const isMobile = window.innerWidth < 768;
+const bokeh = new BokehBackground(isMobile ? 25 : 50);
+scene.add(bokeh.points);
+
+// Particle burst system
+const particleBurst = new ParticleBurst();
+scene.add(particleBurst.points);
+
+// Post-processing
+const composer = new EffectComposer(renderer);
+const renderPass = new RenderPass(scene, camera);
+composer.addPass(renderPass);
+
+const bloomStrength = isMobile ? 0.25 : 0.4;
+const bloomPass = new UnrealBloomPass(
+  new THREE.Vector2(window.innerWidth, window.innerHeight),
+  bloomStrength,
+  0.6,
+  0.85
+);
+composer.addPass(bloomPass);
+const outputPass = new OutputPass();
+composer.addPass(outputPass);
 
 const boardView = new BoardView(scene, {
   cellSize: 1.0,
@@ -47,8 +108,11 @@ const boardView = new BoardView(scene, {
 
 let engine = null;
 let hoveredHandle = null;
-let renderQueued = false;
 let bestPossibleStart = { rowMin: 0, colMin: 0, total: 0 };
+let animationRunning = false;
+let lastFrameTime = 0;
+let winCelebrationActive = false;
+let prevCorrectSet = new Set();
 
 let currentImageSource = createDemoImage();
 let currentImageSeedKey = "builtin-demo-v1";
@@ -169,7 +233,6 @@ function parseGridSize(value) {
   if (!Number.isInteger(parsed)) {
     return 5;
   }
-
   return Math.max(4, Math.min(10, parsed));
 }
 
@@ -187,7 +250,6 @@ function xmur3(input) {
     h = Math.imul(h ^ input.charCodeAt(i), 3432918353);
     h = (h << 13) | (h >>> 19);
   }
-
   return () => {
     h = Math.imul(h ^ (h >>> 16), 2246822507);
     h = Math.imul(h ^ (h >>> 13), 3266489909);
@@ -264,12 +326,10 @@ function countFixedPoints(perm) {
 
 function minInsertMovesForPerm(perm) {
   const tails = [];
-
   for (let i = 0; i < perm.length; i += 1) {
     const value = perm[i];
     let lo = 0;
     let hi = tails.length;
-
     while (lo < hi) {
       const mid = (lo + hi) >> 1;
       if (tails[mid] < value) {
@@ -278,10 +338,8 @@ function minInsertMovesForPerm(perm) {
         hi = mid;
       }
     }
-
     tails[lo] = value;
   }
-
   return perm.length - tails.length;
 }
 
@@ -292,7 +350,6 @@ function createRandomDerangement(n, rng, attemptBudget = 240) {
       return perm;
     }
   }
-
   const shift = 1 + Math.floor(rng() * Math.max(1, n - 1));
   return Array.from({ length: n }, (_, i) => (i + shift) % n);
 }
@@ -302,14 +359,11 @@ function getDifficultyTargetRange(n, difficulty) {
     if (difficulty === "hard") {
       return { min: n, max: Number.POSITIVE_INFINITY };
     }
-
     return { min: n - 1, max: n - 1 };
   }
-
   if (difficulty === "hard") {
     return { min: n + 2, max: n + 2 };
   }
-
   return { min: n, max: n };
 }
 
@@ -321,11 +375,9 @@ function distanceToRange(total, range) {
   if (total < range.min) {
     return range.min - total;
   }
-
   if (total > range.max) {
     return total - range.max;
   }
-
   return 0;
 }
 
@@ -335,7 +387,6 @@ function isBetterScrambleFallback(a, b, range, difficulty) {
   if (aDistance !== bDistance) {
     return aDistance < bDistance;
   }
-
   if (difficulty === "hard") {
     if (a.totalMinMoves !== b.totalMinMoves) {
       return a.totalMinMoves > b.totalMinMoves;
@@ -343,7 +394,6 @@ function isBetterScrambleFallback(a, b, range, difficulty) {
   } else if (a.totalMinMoves !== b.totalMinMoves) {
     return a.totalMinMoves < b.totalMinMoves;
   }
-
   const aKey = `${a.rowPerm.join(",")}|${a.colPerm.join(",")}`;
   const bKey = `${b.rowPerm.join(",")}|${b.colPerm.join(",")}`;
   return aKey < bKey;
@@ -362,32 +412,18 @@ function createSeededScramblePair(n, seedKey, difficulty) {
     const colMinMoves = minInsertMovesForPerm(colPerm);
     const totalMinMoves = rowMinMoves + colMinMoves;
 
-    const candidate = {
-      rowPerm,
-      colPerm,
-      rowMinMoves,
-      colMinMoves,
-      totalMinMoves
-    };
+    const candidate = { rowPerm, colPerm, rowMinMoves, colMinMoves, totalMinMoves };
 
     if (!fallback || isBetterScrambleFallback(candidate, fallback, targetRange, difficulty)) {
       fallback = candidate;
     }
 
     if (isTotalInRange(totalMinMoves, targetRange)) {
-      return {
-        ...candidate,
-        acceptedTarget: true,
-        targetRange
-      };
+      return { ...candidate, acceptedTarget: true, targetRange };
     }
   }
 
-  return {
-    ...fallback,
-    acceptedTarget: false,
-    targetRange
-  };
+  return { ...fallback, acceptedTarget: false, targetRange };
 }
 
 function createEngine() {
@@ -403,6 +439,9 @@ function createEngine() {
 function initializePuzzleEngine(nextEngine) {
   engine = nextEngine;
   bestPossibleStart = engine.getMinimumInsertMoves();
+  prevCorrectSet = new Set();
+  winCelebrationActive = false;
+  boardView.resetBorderOpacity();
 }
 
 function configureBoardFromEngine() {
@@ -438,6 +477,11 @@ function configureBoardFromEngine() {
   camera.updateProjectionMatrix();
 
   renderer.setSize(viewportW, viewportH, true);
+  composer.setSize(viewportW, viewportH);
+  bloomPass.resolution.set(viewportW, viewportH);
+
+  // Update bg plane position
+  bgPlane.position.set(centerX, centerY, -2);
 }
 
 function updateMetrics() {
@@ -459,29 +503,150 @@ function updateMetrics() {
 }
 
 function updateWinOverlay() {
-  if (isSolved()) {
-    winOverlayEl.classList.remove("hidden");
-    winTextEl.textContent = `Image restored in ${engine.moveCount} moves.`;
-  } else {
+  if (isSolved() && !winCelebrationActive) {
+    triggerWinCelebration();
+  } else if (!isSolved()) {
     winOverlayEl.classList.add("hidden");
   }
 }
 
-function requestRender() {
-  if (!engine || renderQueued) {
-    return;
+function triggerWinCelebration() {
+  winCelebrationActive = true;
+
+  // 1. Spring-animate tiles to gap=0
+  boardView.animateWinCollapse(() => {
+    // After collapse completes
+  });
+
+  // 2. Spike bloom
+  const originalStrength = bloomPass.strength;
+  bloomPass.strength = 1.5;
+  setTimeout(() => {
+    bloomPass.strength = originalStrength;
+  }, 400);
+
+  // 3. Gold particle fountain from center
+  const bounds = boardView.getBounds();
+  const cx = (bounds.minX + bounds.maxX) * 0.5;
+  const cy = (bounds.minY + bounds.maxY) * 0.5;
+  const burstCount = isMobile ? 40 : 80;
+
+  particleBurst.emit(cx, cy, {
+    count: burstCount,
+    color: "#f0b429",
+    speed: 4,
+    life: 1.8,
+    spread: Math.PI * 0.8,
+    baseAngle: Math.PI / 2,
+    gravity: -3
+  });
+
+  // 4. Show overlay after delay
+  setTimeout(() => {
+    winOverlayEl.classList.remove("hidden");
+    winTextEl.textContent = `Image restored in ${engine.moveCount} moves.`;
+  }, 1400);
+}
+
+function emitSwapParticles(kind, fromIndex, toIndex) {
+  if (!boardView.bounds) return;
+  const step = boardView.cellSize + boardView.gap;
+
+  let x, y;
+  if (kind === "row") {
+    x = (boardView.bounds.minX + boardView.bounds.maxX) * 0.5;
+    y = boardView.bounds.originY - ((fromIndex + toIndex) / 2) * step;
+  } else {
+    x = boardView.bounds.originX + ((fromIndex + toIndex) / 2) * step;
+    y = (boardView.bounds.minY + boardView.bounds.maxY) * 0.5;
   }
 
-  renderQueued = true;
-  requestAnimationFrame(() => {
-    renderQueued = false;
-    boardView.updateFromEngine(engine, { selectedHandle: null, hoveredHandle });
-    renderer.render(scene, camera);
-
-    if (boardView.hasActiveAnimations()) {
-      requestRender();
-    }
+  particleBurst.emit(x, y, {
+    count: isMobile ? 8 : 15,
+    color: "#22d3ee",
+    speed: 2,
+    life: 0.6,
+    spread: Math.PI * 2,
+    baseAngle: 0
   });
+}
+
+function emitCorrectTileParticles(r, c) {
+  if (!boardView.bounds) return;
+  const step = boardView.cellSize + boardView.gap;
+  const x = boardView.bounds.originX + c * step;
+  const y = boardView.bounds.originY - r * step;
+
+  particleBurst.emit(x, y, {
+    count: isMobile ? 5 : 10,
+    color: "#f0b429",
+    speed: 1.5,
+    life: 0.7,
+    spread: Math.PI * 2,
+    baseAngle: 0
+  });
+}
+
+function checkForNewCorrectTiles() {
+  if (!engine) return;
+  const currentCorrect = new Set();
+
+  for (let r = 0; r < engine.n; r++) {
+    for (let c = 0; c < engine.n; c++) {
+      const cellData = engine.getCellRenderData(r, c);
+      if (cellData.isMatch) {
+        const key = `${r},${c}`;
+        currentCorrect.add(key);
+        if (!prevCorrectSet.has(key)) {
+          emitCorrectTileParticles(r, c);
+        }
+      }
+    }
+  }
+
+  prevCorrectSet = currentCorrect;
+}
+
+// Animation loop
+function startAnimationLoop() {
+  if (animationRunning) return;
+  animationRunning = true;
+  lastFrameTime = performance.now();
+  requestAnimationFrame(animationFrame);
+}
+
+function animationFrame(time) {
+  if (!animationRunning) return;
+
+  const dt = Math.min((time - lastFrameTime) / 1000, 0.05);
+  lastFrameTime = time;
+
+  // Update systems
+  boardView.animate(dt);
+  bokeh.update(dt);
+  particleBurst.update(dt);
+
+  // Render via composer
+  composer.render();
+
+  // Continue if anything is active
+  const needsContinue =
+    boardView.hasActiveAnimations() ||
+    particleBurst.active ||
+    winCelebrationActive ||
+    true; // bokeh always active
+
+  if (needsContinue) {
+    requestAnimationFrame(animationFrame);
+  } else {
+    animationRunning = false;
+  }
+}
+
+function requestRender() {
+  if (!engine) return;
+  boardView.updateFromEngine(engine, { selectedHandle: null, hoveredHandle });
+  startAnimationLoop();
 }
 
 function refreshUi() {
@@ -495,6 +660,7 @@ function onReorderSuccess(kind, fromIndex, toIndex) {
   boardView.clearHint();
   hoveredHandle = null;
   boardView.flashHandles(kind, fromIndex, toIndex);
+  emitSwapParticles(kind, fromIndex, toIndex);
 }
 
 function attemptReorder(kind, fromIndex, toIndex, source = "drag") {
@@ -526,7 +692,9 @@ function attemptReorder(kind, fromIndex, toIndex, source = "drag") {
     return false;
   }
 
+  boardView.reorderSprings(kind, fromIndex, toIndex);
   onReorderSuccess(kind, fromIndex, toIndex);
+  checkForNewCorrectTiles();
   const solved = isSolved();
 
   if (solved) {
@@ -625,6 +793,7 @@ async function initializeGame() {
   configureBoardFromEngine();
   setStatus(startupMessage, startupTone);
   refreshUi();
+  startAnimationLoop();
 }
 
 function resetCurrentMode() {
@@ -632,6 +801,9 @@ function resetCurrentMode() {
   hoveredHandle = null;
   boardView.clearDragPreview();
   boardView.clearHint();
+  winCelebrationActive = false;
+  boardView.resetBorderOpacity();
+  prevCorrectSet = new Set();
   setStatus("Puzzle reset to start state.", "neutral");
   refreshUi();
 }
@@ -715,7 +887,6 @@ function setDifficultyMode(nextMode) {
 function loadImageFromFile(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-
     reader.onerror = () => reject(new Error("Unable to read the selected file."));
     reader.onload = () => {
       const image = new Image();
@@ -723,7 +894,6 @@ function loadImageFromFile(file) {
       image.onerror = () => reject(new Error("Selected file is not a readable image."));
       image.src = String(reader.result);
     };
-
     reader.readAsDataURL(file);
   });
 }
@@ -818,6 +988,8 @@ window.addEventListener("resize", () => {
 window.addEventListener("beforeunload", () => {
   input.dispose();
   boardView.dispose();
+  bokeh.dispose();
+  particleBurst.dispose();
   renderer.dispose();
 });
 
