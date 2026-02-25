@@ -298,27 +298,19 @@ function createRandomDerangement(n, rng, attemptBudget = 240) {
 }
 
 function getDifficultyTargetRange(n, difficulty) {
+  if (n < 7) {
+    if (difficulty === "hard") {
+      return { min: n, max: Number.POSITIVE_INFINITY };
+    }
+
+    return { min: n - 1, max: n - 1 };
+  }
+
   if (difficulty === "hard") {
-    if (n === 5) {
-      return { min: 5, max: 6 };
-    }
-
-    if (n < 5) {
-      return { min: 4, max: Number.POSITIVE_INFINITY };
-    }
-
-    return { min: 5, max: Number.POSITIVE_INFINITY };
+    return { min: n + 2, max: n + 2 };
   }
 
-  if (n === 5) {
-    return { min: 4, max: 6 };
-  }
-
-  if (n < 5) {
-    return { min: 3, max: Number.POSITIVE_INFINITY };
-  }
-
-  return { min: 4, max: Number.POSITIVE_INFINITY };
+  return { min: n, max: n };
 }
 
 function isTotalInRange(total, range) {
