@@ -9,6 +9,7 @@ const gridSizeSelectEl = document.getElementById("grid-size-select");
 const demoImageBtn = document.getElementById("demo-image-btn");
 const resetBtn = document.getElementById("reset-btn");
 const undoBtn = document.getElementById("undo-btn");
+const hintBtn = document.getElementById("hint-btn");
 const playAgainBtn = document.getElementById("play-again-btn");
 
 const movesValueEl = document.getElementById("moves-value");
@@ -22,6 +23,7 @@ const statusTextEl = document.getElementById("status-text");
 const winOverlayEl = document.getElementById("win-overlay");
 const winTextEl = document.getElementById("win-text");
 const DEFAULT_IMAGE_URL = new URL("../cat.png", import.meta.url);
+hintBtn.disabled = true;
 
 const boardRoot = document.getElementById("board-root");
 
@@ -336,6 +338,7 @@ function updateMetrics() {
   movesValueEl.textContent = String(engine.moveCount);
   bestMovesValueEl.textContent = String(minMoves.total);
   bestMovesValueEl.title = `Rows ${minMoves.rowMin} + Cols ${minMoves.colMin}`;
+  hintBtn.disabled = minMoves.total === 0;
 
   metricLabelEl.textContent = "Correct Tiles";
   metricValueEl.textContent = `${metrics.correctCells}/${metrics.total}`;
@@ -379,6 +382,7 @@ function refreshUi() {
 
 function onReorderSuccess(kind, fromIndex, toIndex) {
   boardView.clearDragPreview();
+  boardView.clearHint();
   hoveredHandle = null;
   boardView.flashHandles(kind, fromIndex, toIndex);
 }
@@ -444,6 +448,10 @@ function handleHandleTap(kind, index) {
 }
 
 function handleDragPreview(preview) {
+  if (preview) {
+    boardView.clearHint();
+  }
+
   boardView.setDragPreview(preview);
   if (preview) {
     hoveredHandle = { kind: preview.kind, index: preview.toIndex };
@@ -454,6 +462,34 @@ function handleDragPreview(preview) {
 
 function handleDragCommit(kind, fromIndex, toIndex) {
   return attemptReorder(kind, fromIndex, toIndex, "drag");
+}
+
+function showHint() {
+  if (!engine) {
+    return;
+  }
+
+  if (isSolved()) {
+    setStatus("Puzzle already solved. Reset to play again.", "good");
+    return;
+  }
+
+  const hint = engine.getOptimalInsertHint();
+  if (!hint) {
+    boardView.clearHint();
+    setStatus("No hint available from this state.", "warn");
+    requestRender();
+    return;
+  }
+
+  hoveredHandle = null;
+  boardView.setHintMove(hint);
+  const axisLabel = hint.kind === "row" ? "row" : "column";
+  setStatus(
+    `Hint: move ${axisLabel} ${hint.fromIndex + 1} to ${hint.toIndex + 1} (best possible ${hint.currentTotal} -> ${hint.nextTotal}).`,
+    "good"
+  );
+  requestRender();
 }
 
 async function initializeGame() {
@@ -472,6 +508,7 @@ async function initializeGame() {
   engine = createEngine();
   hoveredHandle = null;
   boardView.clearDragPreview();
+  boardView.clearHint();
 
   configureBoardFromEngine();
   setStatus(startupMessage, startupTone);
@@ -482,6 +519,7 @@ function resetCurrentMode() {
   engine.reset();
   hoveredHandle = null;
   boardView.clearDragPreview();
+  boardView.clearHint();
   setStatus("Puzzle reset to start state.", "neutral");
   refreshUi();
 }
@@ -496,6 +534,7 @@ function undoMove() {
 
   hoveredHandle = null;
   boardView.clearDragPreview();
+  boardView.clearHint();
   setStatus("Move undone.", "neutral");
   refreshUi();
 }
@@ -506,6 +545,7 @@ function setCurrentImageSource(imageSource, message = "Image updated.") {
   engine = createEngine();
   hoveredHandle = null;
   boardView.clearDragPreview();
+  boardView.clearHint();
   configureBoardFromEngine();
   setStatus(`${message} New strong scramble generated.`, "neutral");
   refreshUi();
@@ -529,6 +569,7 @@ function setGridSize(nextSize) {
   engine = createEngine();
   hoveredHandle = null;
   boardView.clearDragPreview();
+  boardView.clearHint();
   configureBoardFromEngine();
   setStatus(`Grid set to ${gridSize}x${gridSize}. New strong scramble generated.`, "neutral");
   refreshUi();
@@ -604,6 +645,10 @@ resetBtn.addEventListener("click", () => {
 
 undoBtn.addEventListener("click", () => {
   undoMove();
+});
+
+hintBtn.addEventListener("click", () => {
+  showHint();
 });
 
 playAgainBtn.addEventListener("click", () => {

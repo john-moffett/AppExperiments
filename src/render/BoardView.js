@@ -17,6 +17,9 @@ export class BoardView {
     this.root = new THREE.Group();
     this.scene.add(this.root);
 
+    this.hintOverlay = new THREE.Group();
+    this.scene.add(this.hintOverlay);
+
     this.tiles = [];
     this.rowHandles = [];
     this.colHandles = [];
@@ -24,9 +27,30 @@ export class BoardView {
     this.raycastTargets = [];
     this.flashUntil = new Map();
     this.dragPreview = null;
+    this.hintMove = null;
 
     this.n = 0;
     this.bounds = null;
+
+    this.hintLineMaterial = new THREE.LineBasicMaterial({
+      color: 0xff9a2e,
+      transparent: true,
+      opacity: 0.95
+    });
+    this.hintHeadMaterial = new THREE.MeshBasicMaterial({
+      color: 0xff9a2e,
+      transparent: true,
+      opacity: 0.95
+    });
+    this.hintHeadGeometry = new THREE.ConeGeometry(0.11, 0.26, 20);
+    this.hintLineGeometry = new THREE.BufferGeometry();
+    this.hintLine = new THREE.Line(this.hintLineGeometry, this.hintLineMaterial);
+    this.hintLine.position.z = 0.34;
+    this.hintHead = new THREE.Mesh(this.hintHeadGeometry, this.hintHeadMaterial);
+    this.hintHead.position.z = 0.34;
+    this.hintLine.visible = false;
+    this.hintHead.visible = false;
+    this.hintOverlay.add(this.hintLine, this.hintHead);
   }
 
   rebuild(n) {
@@ -134,6 +158,16 @@ export class BoardView {
     this.dragPreview = null;
   }
 
+  setHintMove(hintMove) {
+    this.hintMove = hintMove ? { ...hintMove } : null;
+  }
+
+  clearHint() {
+    this.hintMove = null;
+    this.hintLine.visible = false;
+    this.hintHead.visible = false;
+  }
+
   hasActiveAnimations() {
     return false;
   }
@@ -152,6 +186,7 @@ export class BoardView {
 
     this.updateHandleStates(this.rowHandles, "row", hoveredHandle, selectedHandle, now);
     this.updateHandleStates(this.colHandles, "col", hoveredHandle, selectedHandle, now);
+    this.renderHintArrow();
 
     for (let r = 0; r < engine.n; r += 1) {
       for (let c = 0; c < engine.n; c += 1) {
@@ -172,7 +207,8 @@ export class BoardView {
           ((this.dragPreview.kind === "row" && this.dragPreview.fromIndex === r) ||
             (this.dragPreview.kind === "col" && this.dragPreview.fromIndex === c));
 
-        const activeHandle = hoveredHandle || selectedHandle;
+        const hintHandle = this.hintMove ? { kind: this.hintMove.kind, index: this.hintMove.fromIndex } : null;
+        const activeHandle = hoveredHandle || selectedHandle || hintHandle;
         const highlightFromHover =
           activeHandle &&
           ((activeHandle.kind === "row" && activeHandle.index === r) ||
@@ -200,6 +236,50 @@ export class BoardView {
         }
       }
     }
+  }
+
+  renderHintArrow() {
+    const hint = this.hintMove;
+    if (!hint || hint.fromIndex === hint.toIndex) {
+      this.hintLine.visible = false;
+      this.hintHead.visible = false;
+      return;
+    }
+
+    const step = this.cellSize + this.gap;
+    const source = new THREE.Vector3();
+    const target = new THREE.Vector3();
+
+    if (hint.kind === "row") {
+      const baseX = this.bounds.originX - (this.cellSize / 2 + this.handleGap + this.handleSize / 2);
+      source.set(baseX - this.handleSize * 0.82, this.bounds.originY - hint.fromIndex * step, 0);
+      target.set(baseX - this.handleSize * 0.82, this.bounds.originY - hint.toIndex * step, 0);
+    } else {
+      const baseY = this.bounds.originY + (this.cellSize / 2 + this.handleGap + this.handleSize / 2);
+      source.set(this.bounds.originX + hint.fromIndex * step, baseY + this.handleSize * 0.82, 0);
+      target.set(this.bounds.originX + hint.toIndex * step, baseY + this.handleSize * 0.82, 0);
+    }
+
+    const direction = target.clone().sub(source);
+    const distance = direction.length();
+    if (distance < 0.001) {
+      this.hintLine.visible = false;
+      this.hintHead.visible = false;
+      return;
+    }
+
+    direction.normalize();
+    const lineInset = Math.min(0.18, distance * 0.3);
+    const lineStart = source.clone().addScaledVector(direction, lineInset);
+    const lineEnd = target.clone().addScaledVector(direction, -lineInset);
+
+    this.hintLineGeometry.setFromPoints([lineStart, lineEnd]);
+    this.hintLine.visible = true;
+
+    const headLength = 0.26;
+    this.hintHead.position.copy(target).addScaledVector(direction, -headLength * 0.5);
+    this.hintHead.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), direction);
+    this.hintHead.visible = true;
   }
 
   getDragMotion(r, c) {
@@ -281,10 +361,12 @@ export class BoardView {
 
       const dragSelected = this.dragPreview?.kind === kind && this.dragPreview.fromIndex === i;
       const dragTarget = this.dragPreview?.kind === kind && this.dragPreview.toIndex === i;
+      const hintSelected = this.hintMove?.kind === kind && this.hintMove.fromIndex === i;
+      const hintTarget = this.hintMove?.kind === kind && this.hintMove.toIndex === i;
 
       handle.setState({
-        selected: Boolean(selectedHandle?.kind === kind && selectedHandle.index === i) || dragSelected,
-        hovered: Boolean(hoveredHandle?.kind === kind && hoveredHandle.index === i) || dragTarget,
+        selected: Boolean(selectedHandle?.kind === kind && selectedHandle.index === i) || dragSelected || hintSelected,
+        hovered: Boolean(hoveredHandle?.kind === kind && hoveredHandle.index === i) || dragTarget || hintTarget,
         flash: flashUntil >= now
       });
     }
@@ -311,6 +393,7 @@ export class BoardView {
     this.rowHandles = [];
     this.colHandles = [];
     this.dragPreview = null;
+    this.clearHint();
 
     while (this.root.children.length) {
       this.root.remove(this.root.children[0]);
@@ -320,5 +403,10 @@ export class BoardView {
   dispose() {
     this.disposeChildren();
     this.scene.remove(this.root);
+    this.scene.remove(this.hintOverlay);
+    this.hintLineGeometry.dispose();
+    this.hintLineMaterial.dispose();
+    this.hintHeadGeometry.dispose();
+    this.hintHeadMaterial.dispose();
   }
 }

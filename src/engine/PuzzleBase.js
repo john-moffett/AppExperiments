@@ -116,6 +116,31 @@ export class PuzzleBase {
     this.historyStack = [];
   }
 
+  reorderPermCopy(perm, fromIndex, toIndex) {
+    const next = [...perm];
+    const [moved] = next.splice(fromIndex, 1);
+    next.splice(toIndex, 0, moved);
+    return next;
+  }
+
+  countFixedPoints(perm) {
+    let count = 0;
+    for (let i = 0; i < perm.length; i += 1) {
+      if (perm[i] === i) {
+        count += 1;
+      }
+    }
+    return count;
+  }
+
+  countDisplacement(perm) {
+    let displacement = 0;
+    for (let i = 0; i < perm.length; i += 1) {
+      displacement += Math.abs(perm[i] - i);
+    }
+    return displacement;
+  }
+
   minInsertMovesForPerm(perm) {
     const tails = [];
 
@@ -148,6 +173,142 @@ export class PuzzleBase {
       colMin,
       total: rowMin + colMin
     };
+  }
+
+  findOptimalInsertHintForPerm(perm) {
+    const currentMin = this.minInsertMovesForPerm(perm);
+    if (currentMin === 0) {
+      return null;
+    }
+
+    let best = null;
+
+    for (let fromIndex = 0; fromIndex < perm.length; fromIndex += 1) {
+      for (let toIndex = 0; toIndex < perm.length; toIndex += 1) {
+        if (fromIndex === toIndex) {
+          continue;
+        }
+
+        const nextPerm = this.reorderPermCopy(perm, fromIndex, toIndex);
+        const nextMin = this.minInsertMovesForPerm(nextPerm);
+        const improvesBy = currentMin - nextMin;
+
+        if (improvesBy <= 0) {
+          continue;
+        }
+
+        const candidate = {
+          fromIndex,
+          toIndex,
+          currentMin,
+          nextMin,
+          improvesBy,
+          fixedPoints: this.countFixedPoints(nextPerm),
+          displacement: this.countDisplacement(nextPerm)
+        };
+
+        if (!best || this.isBetterHintCandidate(candidate, best)) {
+          best = candidate;
+        }
+      }
+    }
+
+    return best;
+  }
+
+  isBetterHintCandidate(a, b) {
+    if (a.improvesBy !== b.improvesBy) {
+      return a.improvesBy > b.improvesBy;
+    }
+
+    if (a.fixedPoints !== b.fixedPoints) {
+      return a.fixedPoints > b.fixedPoints;
+    }
+
+    if (a.displacement !== b.displacement) {
+      return a.displacement < b.displacement;
+    }
+
+    if (a.fromIndex !== b.fromIndex) {
+      return a.fromIndex < b.fromIndex;
+    }
+
+    return a.toIndex < b.toIndex;
+  }
+
+  getOptimalInsertHint() {
+    const mins = this.getMinimumInsertMoves();
+    if (mins.total === 0) {
+      return null;
+    }
+
+    const rowHint = this.findOptimalInsertHintForPerm(this.rowPerm);
+    const colHint = this.findOptimalInsertHintForPerm(this.colPerm);
+
+    if (!rowHint && !colHint) {
+      return null;
+    }
+
+    const rowCandidate = rowHint
+      ? {
+          kind: "row",
+          ...rowHint
+        }
+      : null;
+    const colCandidate = colHint
+      ? {
+          kind: "col",
+          ...colHint
+        }
+      : null;
+
+    let chosen = rowCandidate ?? colCandidate;
+
+    if (rowCandidate && colCandidate) {
+      if (this.isBetterAxisHint(colCandidate, rowCandidate, mins)) {
+        chosen = colCandidate;
+      }
+    }
+
+    const rowMinAfter = chosen.kind === "row" ? chosen.nextMin : mins.rowMin;
+    const colMinAfter = chosen.kind === "col" ? chosen.nextMin : mins.colMin;
+
+    return {
+      kind: chosen.kind,
+      fromIndex: chosen.fromIndex,
+      toIndex: chosen.toIndex,
+      improvesBy: chosen.improvesBy,
+      currentTotal: mins.total,
+      nextTotal: rowMinAfter + colMinAfter,
+      rowMinAfter,
+      colMinAfter
+    };
+  }
+
+  isBetterAxisHint(a, b, mins) {
+    if (a.improvesBy !== b.improvesBy) {
+      return a.improvesBy > b.improvesBy;
+    }
+
+    const aAxisMin = a.kind === "row" ? mins.rowMin : mins.colMin;
+    const bAxisMin = b.kind === "row" ? mins.rowMin : mins.colMin;
+    if (aAxisMin !== bAxisMin) {
+      return aAxisMin > bAxisMin;
+    }
+
+    if (a.fixedPoints !== b.fixedPoints) {
+      return a.fixedPoints > b.fixedPoints;
+    }
+
+    if (a.kind !== b.kind) {
+      return a.kind === "row";
+    }
+
+    if (a.fromIndex !== b.fromIndex) {
+      return a.fromIndex < b.fromIndex;
+    }
+
+    return a.toIndex < b.toIndex;
   }
 
   isIdentityPerm(perm) {
