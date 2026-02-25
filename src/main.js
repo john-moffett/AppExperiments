@@ -13,7 +13,8 @@ const hintBtn = document.getElementById("hint-btn");
 const playAgainBtn = document.getElementById("play-again-btn");
 
 const movesValueEl = document.getElementById("moves-value");
-const bestMovesValueEl = document.getElementById("best-moves-value");
+const bestMovesStartValueEl = document.getElementById("best-moves-start-value");
+const bestMovesNowValueEl = document.getElementById("best-moves-now-value");
 const metricLabelEl = document.getElementById("metric-label");
 const metricValueEl = document.getElementById("metric-value");
 const metricSecondaryLabelEl = document.getElementById("metric-secondary-label");
@@ -46,6 +47,7 @@ const boardView = new BoardView(scene, {
 let engine = null;
 let hoveredHandle = null;
 let renderQueued = false;
+let bestPossibleStart = { rowMin: 0, colMin: 0, total: 0 };
 
 let currentImageSource = createDemoImage();
 let currentImageSeedKey = "builtin-demo-v1";
@@ -297,6 +299,11 @@ function createEngine() {
   return new ModeImageEngine(puzzle, currentImageSource);
 }
 
+function initializePuzzleEngine(nextEngine) {
+  engine = nextEngine;
+  bestPossibleStart = engine.getMinimumInsertMoves();
+}
+
 function configureBoardFromEngine() {
   boardView.ensureSize(engine.n);
 
@@ -336,8 +343,10 @@ function updateMetrics() {
   const metrics = engine.getProgressMetrics();
   const minMoves = engine.getMinimumInsertMoves();
   movesValueEl.textContent = String(engine.moveCount);
-  bestMovesValueEl.textContent = String(minMoves.total);
-  bestMovesValueEl.title = `Rows ${minMoves.rowMin} + Cols ${minMoves.colMin}`;
+  bestMovesStartValueEl.textContent = String(bestPossibleStart.total);
+  bestMovesStartValueEl.title = `Rows ${bestPossibleStart.rowMin} + Cols ${bestPossibleStart.colMin}`;
+  bestMovesNowValueEl.textContent = String(minMoves.total);
+  bestMovesNowValueEl.title = `Rows ${minMoves.rowMin} + Cols ${minMoves.colMin}`;
   hintBtn.disabled = minMoves.total === 0;
 
   metricLabelEl.textContent = "Correct Tiles";
@@ -505,7 +514,7 @@ async function initializeGame() {
     startupTone = "warn";
   }
 
-  engine = createEngine();
+  initializePuzzleEngine(createEngine());
   hoveredHandle = null;
   boardView.clearDragPreview();
   boardView.clearHint();
@@ -542,7 +551,7 @@ function undoMove() {
 function setCurrentImageSource(imageSource, message = "Image updated.") {
   currentImageSource = imageSource;
 
-  engine = createEngine();
+  initializePuzzleEngine(createEngine());
   hoveredHandle = null;
   boardView.clearDragPreview();
   boardView.clearHint();
@@ -566,7 +575,7 @@ function setGridSize(nextSize) {
     return;
   }
 
-  engine = createEngine();
+  initializePuzzleEngine(createEngine());
   hoveredHandle = null;
   boardView.clearDragPreview();
   boardView.clearHint();
