@@ -1,5 +1,4 @@
 import * as THREE from "three";
-import "./style.css";
 import { getPuzzleForMode } from "./puzzles.js";
 import { ModeImageEngine } from "./engine/ModeImageEngine.js";
 import { BoardView } from "./render/BoardView.js";
