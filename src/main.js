@@ -20,7 +20,7 @@ const metricSecondaryValueEl = document.getElementById("metric-secondary-value")
 const statusTextEl = document.getElementById("status-text");
 const winOverlayEl = document.getElementById("win-overlay");
 const winTextEl = document.getElementById("win-text");
-const DEFAULT_IMAGE_URL = new URL("../watercolor.png", import.meta.url);
+const DEFAULT_IMAGE_URL = new URL("../cat.png", import.meta.url);
 
 const boardRoot = document.getElementById("board-root");
 
@@ -389,10 +389,10 @@ async function initializeGame() {
 
   try {
     currentImageSource = await loadImageFromUrl(DEFAULT_IMAGE_URL.href);
-    startupMessage = "Loaded default image: watercolor.png. Drag row/column headings to reorder strips.";
+    startupMessage = "Loaded default image: cat.png. Drag row/column headings to reorder strips.";
   } catch {
     currentImageSource = createDemoImage();
-    startupMessage = "Could not load watercolor.png. Using built-in demo image.";
+    startupMessage = "Could not load cat.png. Using built-in demo image.";
     startupTone = "warn";
   }
 
