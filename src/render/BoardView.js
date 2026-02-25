@@ -19,6 +19,7 @@ export class BoardView {
 
     this.raycastTargets = [];
     this.flashUntil = new Map();
+    this.swapAnimation = null;
 
     this.n = 0;
     this.bounds = null;
@@ -115,10 +116,29 @@ export class BoardView {
     this.flashUntil.set(`${type}:${j}`, until);
   }
 
+  startSwapAnimation(kind, i, j, durationMs = 300) {
+    this.swapAnimation = {
+      kind,
+      i,
+      j,
+      startTime: performance.now(),
+      durationMs
+    };
+  }
+
+  hasActiveAnimations() {
+    if (!this.swapAnimation) {
+      return false;
+    }
+
+    return performance.now() - this.swapAnimation.startTime < this.swapAnimation.durationMs;
+  }
+
   updateFromEngine(engine, interactionState) {
     const hoveredHandle = interactionState.hoveredHandle;
     const selectedHandle = interactionState.selectedHandle;
     const now = performance.now();
+    const step = this.cellSize + this.gap;
 
     this.updateHandleStates(this.rowHandles, "row", hoveredHandle, selectedHandle, now);
     this.updateHandleStates(this.colHandles, "col", hoveredHandle, selectedHandle, now);
@@ -126,6 +146,15 @@ export class BoardView {
     for (let r = 0; r < engine.n; r += 1) {
       for (let c = 0; c < engine.n; c += 1) {
         const tile = this.tiles[r][c];
+        const motion = this.getSwapMotion(r, c, now);
+        const baseX = this.bounds.originX + c * step;
+        const baseY = this.bounds.originY - r * step;
+
+        tile.mesh.position.set(baseX + motion.offsetX, baseY + motion.offsetY, motion.liftZ);
+        tile.mesh.rotation.set(motion.rotX, motion.rotY, 0);
+        tile.mesh.scale.set(1 + motion.scaleBoost, 1 + motion.scaleBoost, 1);
+        tile.setDepth(motion.depthAmount);
+
         const cellData = engine.getCellRenderData(r, c);
 
         const activeHandle = hoveredHandle || selectedHandle;
@@ -154,6 +183,78 @@ export class BoardView {
         }
       }
     }
+  }
+
+  getSwapMotion(r, c, now) {
+    const motion = {
+      offsetX: 0,
+      offsetY: 0,
+      liftZ: 0,
+      rotX: 0,
+      rotY: 0,
+      scaleBoost: 0,
+      depthAmount: 0
+    };
+
+    if (!this.swapAnimation) {
+      return motion;
+    }
+
+    const { kind, i, j, startTime, durationMs } = this.swapAnimation;
+    const elapsed = now - startTime;
+    if (elapsed >= durationMs) {
+      this.swapAnimation = null;
+      return motion;
+    }
+
+    const t = Math.max(0, Math.min(1, elapsed / durationMs));
+    const eased = this.easeInOutCubic(t);
+    const travel = 1 - eased;
+    const hump = Math.sin(Math.PI * t);
+    const step = this.cellSize + this.gap;
+
+    let moving = false;
+    if (kind === "row") {
+      const delta = (j - i) * step;
+      const sign = Math.sign(delta || 1);
+      if (r === i) {
+        motion.offsetY = -delta * travel;
+        motion.rotX = 0.5 * hump * sign;
+        moving = true;
+      } else if (r === j) {
+        motion.offsetY = delta * travel;
+        motion.rotX = -0.5 * hump * sign;
+        moving = true;
+      }
+    } else if (kind === "col") {
+      const delta = (j - i) * step;
+      const sign = Math.sign(delta || 1);
+      if (c === i) {
+        motion.offsetX = delta * travel;
+        motion.rotY = -0.5 * hump * sign;
+        moving = true;
+      } else if (c === j) {
+        motion.offsetX = -delta * travel;
+        motion.rotY = 0.5 * hump * sign;
+        moving = true;
+      }
+    }
+
+    if (moving) {
+      motion.liftZ = 0.36 * hump;
+      motion.scaleBoost = 0.045 * hump;
+      motion.depthAmount = hump;
+    }
+
+    return motion;
+  }
+
+  easeInOutCubic(t) {
+    if (t < 0.5) {
+      return 4 * t * t * t;
+    }
+    const f = -2 * t + 2;
+    return 1 - (f * f * f) / 2;
   }
 
   updateHandleStates(handles, kind, hoveredHandle, selectedHandle, now) {
@@ -189,6 +290,7 @@ export class BoardView {
     }
 
     this.tiles = [];
+    this.swapAnimation = null;
 
     disposeGroup(this.rowHandles);
     disposeGroup(this.colHandles);

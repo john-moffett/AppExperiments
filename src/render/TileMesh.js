@@ -30,9 +30,25 @@ export class TileMesh {
 
     this.material = new THREE.MeshBasicMaterial({ map: this.texture, transparent: true });
     this.geometry = new THREE.PlaneGeometry(cellSize, cellSize);
-    this.mesh = new THREE.Mesh(this.geometry, this.material);
+    this.faceMesh = new THREE.Mesh(this.geometry, this.material);
+    this.faceMesh.position.z = 0.02;
+
+    this.shadowGeometry = new THREE.PlaneGeometry(cellSize * 1.035, cellSize * 1.035);
+    this.shadowMaterial = new THREE.MeshBasicMaterial({
+      color: "#091017",
+      transparent: true,
+      opacity: 0.14,
+      depthWrite: false
+    });
+    this.shadowMesh = new THREE.Mesh(this.shadowGeometry, this.shadowMaterial);
+    this.shadowMesh.position.set(0.04, -0.04, -0.06);
+
+    this.mesh = new THREE.Group();
+    this.mesh.add(this.shadowMesh);
+    this.mesh.add(this.faceMesh);
 
     this.highlighted = false;
+    this.depthAmount = 0;
     this.lastDraw = null;
   }
 
@@ -63,7 +79,21 @@ export class TileMesh {
   dispose() {
     this.geometry.dispose();
     this.material.dispose();
+    this.shadowGeometry.dispose();
+    this.shadowMaterial.dispose();
     this.texture.dispose();
+  }
+
+  setDepth(amount) {
+    const clamped = Math.max(0, Math.min(1, amount));
+    if (Math.abs(clamped - this.depthAmount) < 0.0001) {
+      return;
+    }
+
+    this.depthAmount = clamped;
+    const spread = 0.04 + clamped * 0.03;
+    this.shadowMesh.position.set(spread, -spread, -0.06 - clamped * 0.08);
+    this.shadowMaterial.opacity = 0.14 + clamped * 0.2;
   }
 
   drawFromLast() {

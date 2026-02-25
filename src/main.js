@@ -33,7 +33,7 @@ boardRoot.appendChild(renderer.domElement);
 
 const boardView = new BoardView(scene, {
   cellSize: 1.0,
-  gap: 0.08,
+  gap: 0.04,
   handleSize: 0.6,
   handleGap: 0.25
 });
@@ -279,6 +279,10 @@ function requestRender() {
     renderQueued = false;
     boardView.updateFromEngine(engine, { selectedHandle, hoveredHandle });
     renderer.render(scene, camera);
+
+    if (boardView.hasActiveAnimations()) {
+      requestRender();
+    }
   });
 }
 
@@ -290,9 +294,8 @@ function refreshUi() {
 
 function onSwapSuccess(kind, i, j) {
   boardView.flashHandles(kind, i, j);
-  setTimeout(() => {
-    requestRender();
-  }, 220);
+  boardView.startSwapAnimation(kind, i, j);
+  requestRender();
 }
 
 function attemptSwap(kind, i, j, source = "click") {
