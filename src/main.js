@@ -19,6 +19,7 @@ const metricSecondaryValueEl = document.getElementById("metric-secondary-value")
 const statusTextEl = document.getElementById("status-text");
 const winOverlayEl = document.getElementById("win-overlay");
 const winTextEl = document.getElementById("win-text");
+const DEFAULT_IMAGE_URL = new URL("../watercolor.png", import.meta.url);
 
 const boardRoot = document.getElementById("board-root");
 
@@ -370,13 +371,25 @@ function handleDragCommit(kind, fromIndex, toIndex) {
   return attemptReorder(kind, fromIndex, toIndex, "drag");
 }
 
-function initializeGame() {
+async function initializeGame() {
+  let startupMessage = "Image mode loaded. Drag row/column headings to reorder strips.";
+  let startupTone = "neutral";
+
+  try {
+    currentImageSource = await loadImageFromUrl(DEFAULT_IMAGE_URL.href);
+    startupMessage = "Loaded default image: watercolor.png. Drag row/column headings to reorder strips.";
+  } catch {
+    currentImageSource = createDemoImage();
+    startupMessage = "Could not load watercolor.png. Using built-in demo image.";
+    startupTone = "warn";
+  }
+
   engine = createEngine();
   hoveredHandle = null;
   boardView.clearDragPreview();
 
   configureBoardFromEngine();
-  setStatus("Image mode loaded. Drag row/column headings to reorder strips.", "neutral");
+  setStatus(startupMessage, startupTone);
   refreshUi();
 }
 
@@ -426,6 +439,15 @@ function loadImageFromFile(file) {
     };
 
     reader.readAsDataURL(file);
+  });
+}
+
+function loadImageFromUrl(url) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error(`Unable to load image at ${url}`));
+    image.src = url;
   });
 }
 
