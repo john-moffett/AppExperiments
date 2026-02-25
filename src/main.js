@@ -5,6 +5,7 @@ import { BoardView } from "./render/BoardView.js";
 import { InputController } from "./input/InputController.js";
 
 const imageInputEl = document.getElementById("image-input");
+const gridSizeSelectEl = document.getElementById("grid-size-select");
 const demoImageBtn = document.getElementById("demo-image-btn");
 const resetBtn = document.getElementById("reset-btn");
 const undoBtn = document.getElementById("undo-btn");
@@ -44,6 +45,7 @@ let hoveredHandle = null;
 let renderQueued = false;
 
 let currentImageSource = createDemoImage();
+let gridSize = parseGridSize(gridSizeSelectEl?.value);
 
 function createDemoImage(size = 1200) {
   const canvas = document.createElement("canvas");
@@ -153,6 +155,15 @@ function setStatus(text, tone = "neutral") {
   }
 }
 
+function parseGridSize(value) {
+  const parsed = Number.parseInt(String(value ?? ""), 10);
+  if (!Number.isInteger(parsed)) {
+    return 5;
+  }
+
+  return Math.max(4, Math.min(10, parsed));
+}
+
 function isSolved() {
   return engine?.isSolved() ?? false;
 }
@@ -208,8 +219,9 @@ function createStrongScramblePerm(n) {
 
 function createEngine() {
   const puzzle = getPuzzleForMode("I");
-  puzzle.startRowPerm = createStrongScramblePerm(puzzle.n);
-  puzzle.startColPerm = createStrongScramblePerm(puzzle.n);
+  puzzle.n = gridSize;
+  puzzle.startRowPerm = createStrongScramblePerm(gridSize);
+  puzzle.startColPerm = createStrongScramblePerm(gridSize);
   return new ModeImageEngine(puzzle, currentImageSource);
 }
 
@@ -426,6 +438,29 @@ function setCurrentImageSource(imageSource, message = "Image updated.") {
   refreshUi();
 }
 
+function setGridSize(nextSize) {
+  const parsed = parseGridSize(nextSize);
+  if (parsed === gridSize && engine) {
+    return;
+  }
+
+  gridSize = parsed;
+  if (gridSizeSelectEl) {
+    gridSizeSelectEl.value = String(gridSize);
+  }
+
+  if (!engine) {
+    return;
+  }
+
+  engine = createEngine();
+  hoveredHandle = null;
+  boardView.clearDragPreview();
+  configureBoardFromEngine();
+  setStatus(`Grid set to ${gridSize}x${gridSize}. New strong scramble generated.`, "neutral");
+  refreshUi();
+}
+
 function loadImageFromFile(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -484,6 +519,10 @@ imageInputEl.addEventListener("change", async () => {
 
 demoImageBtn.addEventListener("click", () => {
   setCurrentImageSource(createDemoImage(), "Switched to built-in demo image.");
+});
+
+gridSizeSelectEl?.addEventListener("change", () => {
+  setGridSize(gridSizeSelectEl.value);
 });
 
 resetBtn.addEventListener("click", () => {

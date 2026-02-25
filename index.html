@@ -18,6 +18,18 @@
       <header class="topbar">
         <div class="controls-left">
           <span class="mode-pill">Image Chunk Swap</span>
+          <label class="mode-select" for="grid-size-select">
+            Grid
+            <select id="grid-size-select">
+              <option value="4">4x4</option>
+              <option value="5" selected>5x5</option>
+              <option value="6">6x6</option>
+              <option value="7">7x7</option>
+              <option value="8">8x8</option>
+              <option value="9">9x9</option>
+              <option value="10">10x10</option>
+            </select>
+          </label>
           <label id="image-upload-wrap" class="mode-select file-select" for="image-input">
             Image
             <input id="image-input" type="file" accept="image/*" />
